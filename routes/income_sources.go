@@ -3,109 +3,42 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
-
-	"github.com/gorilla/mux"
 	"bookkeeper-backend-go/models"
-	"bookkeeper-backend-go/middleware"
+	"github.com/gorilla/mux"
 )
 
 func RegisterIncomeSourceRoutes(r *mux.Router) {
 	sub := r.PathPrefix("/incomeSources").Subrouter()
-	sub.HandleFunc("/", createIncomeSource).Methods("POST")
-	sub.HandleFunc("/", listIncomeSources).Methods("GET")
-	sub.HandleFunc("/{id}", getIncomeSource).Methods("GET")
-	sub.HandleFunc("/{id}", updateIncomeSource).Methods("PUT")
-	sub.HandleFunc("/{id}", deleteIncomeSource).Methods("DELETE")
+	sub.HandleFunc("", getIncomeSources).Methods("GET")
+	// Add other handlers here
 }
 
-func createIncomeSource(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	var source models.IncomeSource
-	if err := json.NewDecoder(r.Body).Decode(&source); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, source.HouseholdID) {
-		http.Error(w, "Forbidden: Not your household", http.StatusForbidden)
-		return
-	}
-	if err := models.DB.Create(&source).Error; err != nil {
-		http.Error(w, "Error creating income source", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(source)
-}
-
-func listIncomeSources(w http.ResponseWriter, r *http.Request) {
-	householdIDs := r.Context().Value("householdIDs").([]uint)
+func getIncomeSources(w http.ResponseWriter, r *http.Request) {
 	var sources []models.IncomeSource
-	if err := models.DB.Where("household_id IN (?)", householdIDs).Order("created_at DESC").Find(&sources).Error; err != nil {
-		http.Error(w, "Error fetching income sources", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(sources)
-}
+	models.DB.Find(&sources)
 
-func getIncomeSource(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var source models.IncomeSource
-	if err := models.DB.First(&source, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
+	type IncomeSourceResponse struct {
+		ID         uint    `json:"id"`
+		Name       string  `json:"name"`
+		Type       string  `json:"type"`
+		Amount     float64 `json:"amount"`
+		Frequency  string  `json:"frequency"`
+		Notes      string  `json:"notes"`
+		HouseholdID uint   `json:"householdId"`
 	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, source.HouseholdID) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	json.NewEncoder(w).Encode(source)
-}
 
-func updateIncomeSource(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var source models.IncomeSource
-	if err := models.DB.First(&source, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
+	resp := make([]IncomeSourceResponse, len(sources))
+	for i, src := range sources {
+		resp[i] = IncomeSourceResponse{
+			ID:          src.ID,
+			Name:        src.Name,
+			Type:        src.Type,
+			Amount:      src.Amount,
+			Frequency:   src.Frequency,
+			Notes:       src.Notes,
+			HouseholdID: src.HouseholdID,
+		}
 	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, source.HouseholdID) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	var payload models.IncomeSource
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	source.Name = payload.Name
-	source.Type = payload.Type
-	source.Amount = payload.Amount
-	source.Frequency = payload.Frequency
-	source.Notes = payload.Notes
-	if err := models.DB.Save(&source).Error; err != nil {
-		http.Error(w, "Error updating income source", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(source)
-}
 
-func deleteIncomeSource(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var source models.IncomeSource
-	if err := models.DB.First(&source, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, source.HouseholdID) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	if err := models.DB.Delete(&source).Error; err != nil {
-		http.Error(w, "Error deleting income source", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(map[string]string{"message": "Income source deleted"})
+	json.NewEncoder(w).Encode(resp)
 }
