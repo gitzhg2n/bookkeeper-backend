@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 	"bookkeeper-backend-go/models"
 	"github.com/gorilla/mux"
 )
@@ -10,33 +11,56 @@ import (
 func RegisterTransactionRoutes(r *mux.Router) {
 	sub := r.PathPrefix("/transactions").Subrouter()
 	sub.HandleFunc("", getTransactions).Methods("GET")
-	// Add other handlers here
+	sub.HandleFunc("", createTransaction).Methods("POST")
 }
 
-func getTransactions(w http.ResponseWriter, r *http.Request) {
-	var txs []models.Transaction
-	models.DB.Preload("Account").Find(&txs)
-
-	type TransactionResponse struct {
-		ID          uint    `json:"id"`
-		Date        string  `json:"date"`
-		Account     string  `json:"account"`
-		Category    string  `json:"category"`
-		Amount      float64 `json:"amount"`
-		Description string  `json:"description"`
-	}
-
-	resp := make([]TransactionResponse, len(txs))
-	for i, tx := range txs {
-		resp[i] = TransactionResponse{
-			ID:          tx.ID,
-			Date:        tx.Date.Format("2006-01-02"),
-			Account:     tx.Account.Name,
-			Category:    tx.Category,
-			Amount:      tx.Amount,
-			Description: tx.Description,
-		}
-	}
-
-	json.NewEncoder(w).Encode(resp)
+type TransactionRequest struct {
+	Date        string  `json:"date"`
+	AccountID   uint    `json:"accountId"`
+	Category    string  `json:"category"`
+	Amount      float64 `json:"amount"`
+	Description string  `json:"description"`
 }
+
+func createTransaction(w http.ResponseWriter, r *http.Request) {
+	var req TransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Invalid JSON"})
+		return
+	}
+	if req.Date == "" || req.AccountID == 0 || req.Category == "" || req.Amount == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Date, accountId, category, and amount required"})
+		return
+	}
+	parsedDate, err := time.Parse("2006-01-02", req.Date)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Invalid date format (YYYY-MM-DD required)"})
+		return
+	}
+	tx := models.Transaction{
+		Date:        parsedDate,
+		AccountID:   req.AccountID,
+		Category:    req.Category,
+		Amount:      req.Amount,
+		Description: req.Description,
+	}
+	if err := models.DB.Create(&tx).Error; err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to save transaction"})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":          tx.ID,
+		"date":        tx.Date.Format("2006-01-02"),
+		"accountId":   tx.AccountID,
+		"category":    tx.Category,
+		"amount":      tx.Amount,
+		"description": tx.Description,
+	})
+}
+
+// ... existing getTransactions code remains unchanged

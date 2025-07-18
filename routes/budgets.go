@@ -10,27 +10,41 @@ import (
 func RegisterBudgetRoutes(r *mux.Router) {
 	sub := r.PathPrefix("/budgets").Subrouter()
 	sub.HandleFunc("", getBudgets).Methods("GET")
-	// Add other handlers here
+	sub.HandleFunc("", createBudget).Methods("POST")
 }
 
-func getBudgets(w http.ResponseWriter, r *http.Request) {
-	var budgets []models.Budget
-	models.DB.Find(&budgets)
-
-	type BudgetResponse struct {
-		ID       uint   `json:"id"`
-		Category string `json:"category"`
-		Amount   int64  `json:"amount"`
-	}
-
-	resp := make([]BudgetResponse, len(budgets))
-	for i, b := range budgets {
-		resp[i] = BudgetResponse{
-			ID:       b.ID,
-			Category: b.Category,
-			Amount:   b.Amount,
-		}
-	}
-
-	json.NewEncoder(w).Encode(resp)
+type BudgetRequest struct {
+	Category string `json:"category"`
+	Amount   int64  `json:"amount"`
 }
+
+func createBudget(w http.ResponseWriter, r *http.Request) {
+	var req BudgetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Invalid JSON"})
+		return
+	}
+	if req.Category == "" || req.Amount <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Category and positive amount required"})
+		return
+	}
+	b := models.Budget{
+		Category: req.Category,
+		Amount:   req.Amount,
+	}
+	if err := models.DB.Create(&b).Error; err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to save budget"})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":       b.ID,
+		"category": b.Category,
+		"amount":   b.Amount,
+	})
+}
+
+// ... existing getBudgets code remains unchanged
