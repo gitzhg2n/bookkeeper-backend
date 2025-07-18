@@ -84,9 +84,10 @@ func loginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id":    user.ID,
-		"email": user.Email,
-		"exp":   time.Now().Add(time.Hour * 24 * 7).Unix(),
+		"user_id": user.ID,
+		"email":   user.Email,
+		"role":    user.Role,
+		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(),
 	})
 	tokenString, _ := token.SignedString(jwtSecret)
 	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
