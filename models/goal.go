@@ -8,6 +8,7 @@ type Goal struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	Name        string    `json:"name" gorm:"not null"`
 	HouseholdID uint      `json:"householdId" gorm:"not null"`
+	UserID      uint      `json:"userId" gorm:"not null"`
 	TargetDate  time.Time `json:"targetDate" gorm:"not null"`
 	Category    string    `json:"category" gorm:"not null"`
 	Target      float64   `json:"target"`

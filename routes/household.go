@@ -17,6 +17,13 @@ type MemberRequest struct {
 	Name string `json:"name"`
 }
 
+func getHouseholdMembers(w http.ResponseWriter, r *http.Request) {
+	// Basic implementation - in real app, this would get members from database
+	members := []models.HouseholdMember{}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(members)
+}
+
 func addHouseholdMember(w http.ResponseWriter, r *http.Request) {
 	var req MemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

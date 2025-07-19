@@ -22,6 +22,16 @@ type IncomeSourceRequest struct {
 	HouseholdID uint    `json:"householdId"`
 }
 
+func getIncomeSources(w http.ResponseWriter, r *http.Request) {
+	var incomeSources []models.IncomeSource
+	if err := models.DB.Find(&incomeSources).Error; err != nil {
+		http.Error(w, "Failed to get income sources", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(incomeSources)
+}
+
 func createIncomeSource(w http.ResponseWriter, r *http.Request) {
 	var req IncomeSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -58,5 +68,3 @@ func createIncomeSource(w http.ResponseWriter, r *http.Request) {
 		"householdId": src.HouseholdID,
 	})
 }
-
-// ... existing getIncomeSources code remains unchanged
