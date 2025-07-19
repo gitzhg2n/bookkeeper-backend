@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"bookkeeper-backend-go/models"
-	"bookkeeper-backend-go/middleware"
+	"bookkeeper-backend/models"
+	"bookkeeper-backend/middleware"
 )
 
 func RegisterHouseholdRoutes(r *mux.Router) {

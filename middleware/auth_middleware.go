@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )

@@ -3,7 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
 )
 

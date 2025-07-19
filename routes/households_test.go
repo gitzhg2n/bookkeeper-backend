@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 )
 
 func TestCreateHousehold(t *testing.T) {

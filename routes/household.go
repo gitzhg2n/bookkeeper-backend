@@ -3,11 +3,11 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
 )
 
-func RegisterHouseholdRoutes(r *mux.Router) {
+func RegisterHouseholdMemberRoutes(r *mux.Router) {
 	sub := r.PathPrefix("/household").Subrouter()
 	sub.HandleFunc("/members", getHouseholdMembers).Methods("GET")
 	sub.HandleFunc("/members", addHouseholdMember).Methods("POST")

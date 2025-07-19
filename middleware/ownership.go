@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"context"
 )
 
