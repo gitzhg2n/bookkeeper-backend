@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
-	"bookkeeper-backend-go/middleware"
+	"bookkeeper-backend/middleware"
 )
 
 func RegisterBudgetRoutes(r *mux.Router) {
@@ -18,10 +18,10 @@ func RegisterBudgetRoutes(r *mux.Router) {
 }
 
 type BudgetRequest struct {
-	Name     string `json:"name"`
-	Category string `json:"category"`
-	Amount   int64  `json:"amount"`
-	Period   string `json:"period"`
+	Name     string  `json:"name"`
+	Category string  `json:"category"`
+	Amount   float64 `json:"amount"`
+	Period   string  `json:"period"`
 }
 
 func getBudgets(w http.ResponseWriter, r *http.Request) {

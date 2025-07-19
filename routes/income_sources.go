@@ -3,7 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
 )
 
@@ -20,6 +20,16 @@ type IncomeSourceRequest struct {
 	Frequency   string  `json:"frequency"`
 	Notes       string  `json:"notes"`
 	HouseholdID uint    `json:"householdId"`
+}
+
+func getIncomeSources(w http.ResponseWriter, r *http.Request) {
+	var incomeSources []models.IncomeSource
+	if err := models.DB.Find(&incomeSources).Error; err != nil {
+		http.Error(w, "Failed to get income sources", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(incomeSources)
 }
 
 func createIncomeSource(w http.ResponseWriter, r *http.Request) {
@@ -58,5 +68,3 @@ func createIncomeSource(w http.ResponseWriter, r *http.Request) {
 		"householdId": src.HouseholdID,
 	})
 }
-
-// ... existing getIncomeSources code remains unchanged

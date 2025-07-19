@@ -1,0 +1,25 @@
+# Binaries
+main
+bookkeeper-backend
+
+# Database files
+*.db
+
+# Environment files
+.env
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go vendor
+vendor/

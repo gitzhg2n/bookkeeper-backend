@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/golang-jwt/jwt/v5"

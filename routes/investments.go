@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
-	"bookkeeper-backend-go/middleware"
+	"bookkeeper-backend/middleware"
 )
 
 func RegisterInvestmentRoutes(r *mux.Router) {

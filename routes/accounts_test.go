@@ -1,3 +1,10 @@
+package routes
+
+import (
+	"testing"
+	"bookkeeper-backend/models"
+)
+
 func TestUpdateAccount(t *testing.T) {
 	acc := models.Account{
 		Name:        "Old Name",

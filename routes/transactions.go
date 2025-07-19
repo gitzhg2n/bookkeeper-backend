@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"bookkeeper-backend-go/models"
+	"bookkeeper-backend/models"
 	"github.com/gorilla/mux"
-	"bookkeeper-backend-go/middleware"
+	"bookkeeper-backend/middleware"
 )
 
 func RegisterTransactionRoutes(r *mux.Router) {
