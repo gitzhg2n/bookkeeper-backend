@@ -24,54 +24,86 @@ type InvestmentRequest struct {
 	Institution string  `json:"institution"`
 }
 
+func getInvestments(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserContext(r.Context())
+	var investments []models.Investment
+	models.DB.Where("user_id = ?", user.ID).Find(&investments)
+	json.NewEncoder(w).Encode(investments)
+}
+
+func createInvestment(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserContext(r.Context())
+	var req InvestmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || req.Type == "" || req.Value < 0 || req.Institution == "" {
+		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
+		return
+	}
+	investment := models.Investment{
+		UserID:      user.ID,
+		Name:        req.Name,
+		Value:       req.Value,
+		Type:        req.Type,
+		Institution: req.Institution,
+	}
+	if err := models.DB.Create(&investment).Error; err != nil {
+		http.Error(w, "Failed to create investment", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(investment)
+}
+
 func updateInvestment(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserContext(r.Context())
+	user := middleware.GetUserContext(r.Context())
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	if !middleware.CheckInvestmentOwnership(r.Context(), userCtx.ID, uint(id)) {
-		http.Error(w, "Forbidden: Not your investment", http.StatusForbidden)
+	var investment models.Investment
+	if err := models.DB.First(&investment, id).Error; err != nil {
+		http.Error(w, "Investment not found", http.StatusNotFound)
+		return
+	}
+	if investment.UserID != user.ID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	var req InvestmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Invalid JSON"})
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	var inv models.Investment
-	if err := models.DB.First(&inv, id).Error; err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Investment not found"})
+	if req.Name == "" || req.Type == "" || req.Value < 0 || req.Institution == "" {
+		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
 		return
 	}
-	inv.Name = req.Name
-	inv.Value = req.Value
-	inv.Type = req.Type
-	inv.Institution = req.Institution
-	if err := models.DB.Save(&inv).Error; err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to update investment"})
+	investment.Name = req.Name
+	investment.Value = req.Value
+	investment.Type = req.Type
+	investment.Institution = req.Institution
+	if err := models.DB.Save(&investment).Error; err != nil {
+		http.Error(w, "Failed to update investment", http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(inv)
+	json.NewEncoder(w).Encode(investment)
 }
 
 func deleteInvestment(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserContext(r.Context())
+	user := middleware.GetUserContext(r.Context())
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	if !middleware.CheckInvestmentOwnership(r.Context(), userCtx.ID, uint(id)) {
-		http.Error(w, "Forbidden: Not your investment", http.StatusForbidden)
+	var investment models.Investment
+	if err := models.DB.First(&investment, id).Error; err != nil {
+		http.Error(w, "Investment not found", http.StatusNotFound)
 		return
 	}
-	var inv models.Investment
-	if err := models.DB.First(&inv, id).Error; err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Investment not found"})
+	if investment.UserID != user.ID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if err := models.DB.Delete(&inv).Error; err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to delete investment"})
+	if err := models.DB.Delete(&investment).Error; err != nil {
+		http.Error(w, "Failed to delete investment", http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Investment deleted"})
 }

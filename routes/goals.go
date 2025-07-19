@@ -25,23 +25,58 @@ type GoalRequest struct {
 	Notes    string  `json:"notes"`
 }
 
+func getGoals(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserContext(r.Context())
+	var goals []models.Goal
+	models.DB.Where("user_id = ?", user.ID).Find(&goals)
+	json.NewEncoder(w).Encode(goals)
+}
+
+func createGoal(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserContext(r.Context())
+	var req GoalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || req.Category == "" || req.Target <= 0 {
+		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
+		return
+	}
+	goal := models.Goal{
+		UserID:   user.ID,
+		Name:     req.Name,
+		Target:   req.Target,
+		Progress: req.Progress,
+		Category: req.Category,
+		Notes:    req.Notes,
+	}
+	if err := models.DB.Create(&goal).Error; err != nil {
+		http.Error(w, "Failed to create goal", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(goal)
+}
+
 func updateGoal(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserContext(r.Context())
+	user := middleware.GetUserContext(r.Context())
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	if !middleware.CheckGoalOwnership(r.Context(), userCtx.ID, uint(id)) {
-		http.Error(w, "Forbidden: Not your goal", http.StatusForbidden)
+	var goal models.Goal
+	if err := models.DB.First(&goal, id).Error; err != nil {
+		http.Error(w, "Goal not found", http.StatusNotFound)
+		return
+	}
+	if goal.UserID != user.ID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	var req GoalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Invalid JSON"})
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	var goal models.Goal
-	if err := models.DB.First(&goal, id).Error; err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Goal not found"})
+	if req.Name == "" || req.Category == "" || req.Target <= 0 {
+		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
 		return
 	}
 	goal.Name = req.Name
@@ -50,30 +85,28 @@ func updateGoal(w http.ResponseWriter, r *http.Request) {
 	goal.Category = req.Category
 	goal.Notes = req.Notes
 	if err := models.DB.Save(&goal).Error; err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to update goal"})
+		http.Error(w, "Failed to update goal", http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(goal)
 }
 
 func deleteGoal(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserContext(r.Context())
+	user := middleware.GetUserContext(r.Context())
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	if !middleware.CheckGoalOwnership(r.Context(), userCtx.ID, uint(id)) {
-		http.Error(w, "Forbidden: Not your goal", http.StatusForbidden)
-		return
-	}
 	var goal models.Goal
 	if err := models.DB.First(&goal, id).Error; err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Goal not found"})
+		http.Error(w, "Goal not found", http.StatusNotFound)
+		return
+	}
+	if goal.UserID != user.ID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 	if err := models.DB.Delete(&goal).Error; err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Failed to delete goal"})
+		http.Error(w, "Failed to delete goal", http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Goal deleted"})
 }
