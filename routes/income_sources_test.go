@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	
 	"bookkeeper-backend/models"
 )
 
@@ -26,8 +27,4 @@ func TestCreateIncomeSource(t *testing.T) {
 	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
 		t.Errorf("expected 200 or 201, got %d", w.Code)
 	}
-}
-
-func mockUserContext(ctx interface{}) interface{} {
-	return ctx
 }

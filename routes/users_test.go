@@ -49,8 +49,3 @@ func TestCreateUser_NonAdmin(t *testing.T) {
 	}
 }
 
-// Helper to mock role in context
-func contextWithRole(ctx interface{}, role string) interface{} {
-	// Extend as needed for your context infrastructure
-	return ctx
-}

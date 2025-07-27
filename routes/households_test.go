@@ -26,8 +26,3 @@ func TestCreateHousehold(t *testing.T) {
 	}
 }
 
-// Helper to mock userID in context
-func contextWithUserID(ctx interface{}, userID uint) interface{} {
-	// Extend as needed for your context infrastructure
-	return ctx
-}
