@@ -14,13 +14,35 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// loggingMiddleware logs HTTP requests
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.RequestURI, time.Since(start))
+	})
+}
+
 func main() {
 	// Initialize database
 	models.InitDB()
 
 	r := mux.NewRouter()
+	
+	// Add middleware for all routes
+	r.Use(loggingMiddleware)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Add security headers
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			next.ServeHTTP(w, r)
+		})
+	})
 
-	// Add health check endpoint
+	// Add health check endpoints
 	r.HandleFunc("/health", healthCheck).Methods("GET")
 	r.HandleFunc("/ready", readinessCheck).Methods("GET")
 
@@ -82,6 +104,9 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func readinessCheck(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	
 	// Check database connection
 	sqlDB, err := models.DB.DB()
 	if err != nil {
@@ -91,7 +116,7 @@ func readinessCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	if err := sqlDB.Ping(); err != nil {
+	if err := sqlDB.PingContext(ctx); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte(`{"status":"not ready","error":"database ping failed"}`))

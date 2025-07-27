@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -11,7 +12,18 @@ import (
 	"gorm.io/gorm"
 )
 
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
+var jwtSecret []byte
+
+func init() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("JWT_SECRET environment variable is required")
+	}
+	if len(secret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters long")
+	}
+	jwtSecret = []byte(secret)
+}
 
 // UserContext holds info for privacy/ownership checks.
 type UserContext struct {
@@ -133,7 +145,7 @@ func AuthMiddleware(db *gorm.DB) func(next http.Handler) http.Handler {
 	}
 }
 
-// Optional helper to retrieve UserContext from context in downstream handlers.
+// GetUserContext retrieves UserContext from context
 func GetUserContext(ctx context.Context) *UserContext {
 	val := ctx.Value(userContextKey)
 	if val == nil {
