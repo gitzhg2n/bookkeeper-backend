@@ -25,7 +25,3 @@ func TestCreateInvestment(t *testing.T) {
 		t.Errorf("expected 200 or 201, got %d", w.Code)
 	}
 }
-
-func mockUserContext(ctx interface{}) interface{} {
-	return ctx
-}

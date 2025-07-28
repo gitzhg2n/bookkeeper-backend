@@ -6,13 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+	
 	"bookkeeper-backend/models"
 )
 
 func TestCreateTransaction(t *testing.T) {
 	tx := models.Transaction{
 		AccountID: 1,
-		Date:      models.Now(), // Assuming you have a helper for now, or use time.Now()
+		Date:      time.Now(),
 		Category:  "Groceries",
 		Status:    "completed",
 		Amount:    50.75,
@@ -29,8 +31,3 @@ func TestCreateTransaction(t *testing.T) {
 }
 
 // Add similar tests for GET, PUT, DELETE as needed
-
-func mockUserContext(ctx interface{}) interface{} {
-	// Extend this to mock userID, accountIDs, etc.
-	return ctx
-}
