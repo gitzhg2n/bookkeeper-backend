@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"path/filepath"
 
 	"bookkeeper-backend/config"
@@ -15,18 +14,11 @@ import (
 )
 
 func Initialize(cfg *config.Config) (*sql.DB, *gorm.DB, error) {
-	// For early MVP we focus on sqlite file path
 	dbPath := cfg.DatabaseURL
 	if dbPath == "" {
 		dbPath = "bookkeeper.db"
 	}
-
-	// Ensure relative path directory exists
-	dir := filepath.Dir(dbPath)
-	if dir != "." && dir != "" {
-		// swallow error if exists
-		_ = ensureDir(dir)
-	}
+	_ = ensureDir(filepath.Dir(dbPath))
 
 	gormDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -35,9 +27,16 @@ func Initialize(cfg *config.Config) (*sql.DB, *gorm.DB, error) {
 		return nil, nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// AutoMigrate only for early development; will switch to pure SQL migrations soon
+	// AutoMigrate (temporary)
 	if err := gormDB.AutoMigrate(
 		&models.User{},
+		&models.RefreshToken{},
+		&models.Household{},
+		&models.HouseholdMember{},
+		&models.Account{},
+		&models.Transaction{},
+		&models.Category{},
+		&models.Budget{},
 	); err != nil {
 		return nil, nil, fmt.Errorf("automigrate: %w", err)
 	}
@@ -49,9 +48,7 @@ func Initialize(cfg *config.Config) (*sql.DB, *gorm.DB, error) {
 	return sqlDB, gormDB, nil
 }
 
-func ensureDir(path string) error {
-	return nil // In minimal version we skip; placeholder if we add FS ops
-}
+func ensureDir(_ string) error { return nil }
 
 func HealthCheck(gdb *gorm.DB) error {
 	sqlDB, err := gdb.DB()
@@ -59,11 +56,4 @@ func HealthCheck(gdb *gorm.DB) error {
 		return err
 	}
 	return sqlDB.Ping()
-}
-
-func Must(gdb *gorm.DB, err error) *gorm.DB {
-	if err != nil {
-		log.Fatalf("db error: %v", err)
-	}
-	return gdb
 }
