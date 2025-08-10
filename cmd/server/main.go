@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,14 +18,17 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// Initialize database (+ run migrations)
+	logger := setupLogger(cfg)
+	slog.SetDefault(logger)
+
 	sqlDB, gormDB, err := db.Initialize(cfg)
 	if err != nil {
-		log.Fatalf("database init failed: %v", err)
+		logger.Error("database init failed", "error", err)
+		os.Exit(1)
 	}
 	defer sqlDB.Close()
 
-	router := routes.BuildRouter(cfg, gormDB)
+	router := routes.BuildRouter(cfg, gormDB, logger)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
@@ -35,24 +39,37 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Server starting on :%s", cfg.Port)
+		logger.Info("server starting", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			logger.Error("server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
 	<-stop
-	log.Println("Shutdown signal received")
+	logger.Info("shutdown signal received")
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("server forced to shutdown: %v", err)
+		logger.Error("graceful shutdown failed", "error", err)
+		os.Exit(1)
 	}
+	logger.Info("server exited gracefully")
+}
 
-	log.Println("Server exited gracefully")
+func setupLogger(cfg *config.Config) *slog.Logger {
+	level := slog.LevelInfo
+	switch cfg.LogLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	return slog.New(handler)
 }
