@@ -5,111 +5,122 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"bookkeeper-backend/models"
-	"github.com/gorilla/mux"
+
+	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/middleware"
+
+	"gorm.io/gorm"
 )
 
-func RegisterTransactionRoutes(r *mux.Router) {
-	sub := r.PathPrefix("/transactions").Subrouter()
-	sub.HandleFunc("", getTransactions).Methods("GET")
-	sub.HandleFunc("", createTransaction).Methods("POST")
-	sub.HandleFunc("/{id}", updateTransaction).Methods("PUT")
-	sub.HandleFunc("/{id}", deleteTransaction).Methods("DELETE")
+type TransactionHandler struct {
+	db *gorm.DB
 }
 
-type TransactionRequest struct {
-	Date        string  `json:"date"`
-	AccountID   uint    `json:"accountId"`
-	Category    string  `json:"category"`
-	Amount      float64 `json:"amount"`
-	Description string  `json:"description"`
+func NewTransactionHandler(db *gorm.DB) *TransactionHandler {
+	return &TransactionHandler{db: db}
 }
 
-func getTransactions(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserContext(r.Context())
-	var transactions []models.Transaction
-	models.DB.Where("user_id = ?", user.ID).Find(&transactions)
-	json.NewEncoder(w).Encode(transactions)
+type createTransactionRequest struct {
+	AmountCents int64   `json:"amount_cents"`
+	Currency    string  `json:"currency"`
+	CategoryID  *uint   `json:"category_id"`
+	Memo        string  `json:"memo"`
+	OccurredAt  *string `json:"occurred_at"` // RFC3339 or date
 }
 
-func createTransaction(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserContext(r.Context())
-	var req TransactionRequest
+func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, accountIDStr string) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	accID, err := strconv.ParseUint(accountIDStr, 10, 32)
+	if err != nil {
+		writeJSONError(w, "invalid account id", http.StatusBadRequest)
+		return
+	}
+	var acc models.Account
+	if err := h.db.First(&acc, uint(accID)).Error; err != nil {
+		writeJSONError(w, "account not found", http.StatusNotFound)
+		return
+	}
+	isMember, _ := userIsHouseholdMember(h.db, user.ID, acc.HouseholdID)
+	if !isMember {
+		writeJSONError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var req createTransactionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		writeJSONError(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	parsedDate, err := time.Parse("2006-01-02", req.Date)
-	if err != nil || req.Amount == 0 || req.Category == "" || req.AccountID == 0 {
-		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
+	if req.AmountCents == 0 {
+		writeJSONError(w, "amount_cents required", http.StatusBadRequest)
 		return
 	}
-	tx := models.Transaction{
-		UserID:      user.ID,
-		Date:        parsedDate,
-		AccountID:   req.AccountID,
-		Category:    req.Category,
-		Amount:      req.Amount,
-		Description: req.Description,
+	if req.Currency == "" {
+		req.Currency = acc.Currency
 	}
-	if err := models.DB.Create(&tx).Error; err != nil {
-		http.Error(w, "Failed to create transaction", http.StatusInternalServerError)
+	occ := time.Now()
+	if req.OccurredAt != nil {
+		if t, err := time.Parse(time.RFC3339, *req.OccurredAt); err == nil {
+			occ = t
+		}
+	}
+	trx := &models.Transaction{
+		AccountID:   acc.ID,
+		UserID:      &user.ID,
+		AmountCents: req.AmountCents,
+		Currency:    req.Currency,
+		CategoryID:  req.CategoryID,
+		Memo:        sanitizeString(req.Memo),
+		OccurredAt:  occ,
+	}
+	if err := h.db.Create(trx).Error; err != nil {
+		writeJSONError(w, "create failed", http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(tx)
+	writeJSONSuccess(w, "created", trx)
 }
 
-func updateTransaction(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserContext(r.Context())
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var tx models.Transaction
-	if err := models.DB.First(&tx, id).Error; err != nil {
-		http.Error(w, "Transaction not found", http.StatusNotFound)
+func (h *TransactionHandler) List(w http.ResponseWriter, r *http.Request, accountIDStr string) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if tx.UserID != user.ID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	accID, err := strconv.ParseUint(accountIDStr, 10, 32)
+	if err != nil {
+		writeJSONError(w, "invalid account id", http.StatusBadRequest)
 		return
 	}
-	var req TransactionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	var acc models.Account
+	if err := h.db.First(&acc, uint(accID)).Error; err != nil {
+		writeJSONError(w, "account not found", http.StatusNotFound)
 		return
 	}
-	parsedDate, err := time.Parse("2006-01-02", req.Date)
-	if err != nil || req.Amount == 0 || req.Category == "" || req.AccountID == 0 {
-		http.Error(w, "Missing/invalid fields", http.StatusBadRequest)
+	isMember, _ := userIsHouseholdMember(h.db, user.ID, acc.HouseholdID)
+	if !isMember {
+		writeJSONError(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	tx.Date = parsedDate
-	tx.AccountID = req.AccountID
-	tx.Category = req.Category
-	tx.Amount = req.Amount
-	tx.Description = req.Description
-	if err := models.DB.Save(&tx).Error; err != nil {
-		http.Error(w, "Failed to update transaction", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(tx)
-}
 
-func deleteTransaction(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserContext(r.Context())
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var tx models.Transaction
-	if err := models.DB.First(&tx, id).Error; err != nil {
-		http.Error(w, "Transaction not found", http.StatusNotFound)
-		return
+	query := h.db.Where("account_id = ?", acc.ID)
+
+	start := r.URL.Query().Get("start")
+	end := r.URL.Query().Get("end")
+	if start != "" {
+		if t, err := time.Parse(time.RFC3339, start); err == nil {
+			query = query.Where("occurred_at >= ?", t)
+		}
 	}
-	if tx.UserID != user.ID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+	if end != "" {
+		if t, err := time.Parse(time.RFC3339, end); err == nil {
+			query = query.Where("occurred_at <= ?", t)
+		}
 	}
-	if err := models.DB.Delete(&tx).Error; err != nil {
-		http.Error(w, "Failed to delete transaction", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Transaction deleted"})
+
+	var txs []models.Transaction
+	query.Order("occurred_at desc").Limit(500).Find(&txs)
+	writeJSONSuccess(w, "ok", txs)
 }

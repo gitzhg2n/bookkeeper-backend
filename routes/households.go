@@ -4,101 +4,90 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
-	"github.com/gorilla/mux"
-	"bookkeeper-backend/models"
+	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/middleware"
+
+	"gorm.io/gorm"
 )
 
-func RegisterHouseholdRoutes(r *mux.Router) {
-	sub := r.PathPrefix("/households").Subrouter()
-	sub.HandleFunc("/", createHousehold).Methods("POST")
-	sub.HandleFunc("/", listHouseholds).Methods("GET")
-	sub.HandleFunc("/{id}", getHousehold).Methods("GET")
-	sub.HandleFunc("/{id}", updateHousehold).Methods("PUT")
-	sub.HandleFunc("/{id}", deleteHousehold).Methods("DELETE")
+type HouseholdHandler struct {
+	db *gorm.DB
 }
 
-func createHousehold(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	var household models.Household
-	if err := json.NewDecoder(r.Body).Decode(&household); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	household.OwnerID = userID
-	if err := models.DB.Create(&household).Error; err != nil {
-		http.Error(w, "Error creating household", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(household)
+func NewHouseholdHandler(db *gorm.DB) *HouseholdHandler {
+	return &HouseholdHandler{db: db}
 }
 
-func listHouseholds(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	var households []models.Household
-	if err := models.DB.Where("owner_id = ?", userID).Find(&households).Error; err != nil {
-		http.Error(w, "Error fetching households", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(households)
+type createHouseholdRequest struct {
+	Name string `json:"name"`
 }
 
-func getHousehold(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var household models.Household
-	if err := models.DB.First(&household, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
+func (h *HouseholdHandler) Create(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, household.ID) {
-		http.Error(w, "Forbidden: Not your household", http.StatusForbidden)
+	var req createHouseholdRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || sanitizeString(req.Name) == "" {
+		writeJSONError(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	json.NewEncoder(w).Encode(household)
+	house := &models.Household{
+		Name:      sanitizeString(req.Name),
+		CreatedBy: user.ID,
+	}
+	if err := h.db.Create(house).Error; err != nil {
+		writeJSONError(w, "create failed", http.StatusInternalServerError)
+		return
+	}
+	member := &models.HouseholdMember{
+		HouseholdID: house.ID,
+		UserID:      user.ID,
+		Role:        "owner",
+		CreatedAt:   time.Now(),
+	}
+	_ = h.db.Create(member).Error
+
+	writeJSONSuccess(w, "created", map[string]any{
+		"id":   house.ID,
+		"name": house.Name,
+	})
 }
 
-func updateHousehold(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var household models.Household
-	if err := models.DB.First(&household, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
+func (h *HouseholdHandler) List(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, household.ID) {
-		http.Error(w, "Forbidden: Not your household", http.StatusForbidden)
-		return
+	var results []struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+		Role string `json:"role"`
 	}
-	var payload models.Household
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	household.Name = payload.Name
-	if err := models.DB.Save(&household).Error; err != nil {
-		http.Error(w, "Error updating household", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(household)
+	h.db.Table("households h").
+		Select("h.id, h.name, hm.role").
+		Joins("JOIN household_members hm ON hm.household_id = h.id").
+		Where("hm.user_id = ?", user.ID).
+		Scan(&results)
+	writeJSONSuccess(w, "ok", results)
 }
 
-func deleteHousehold(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(uint)
-	id, _ := strconv.Atoi(mux.Vars(r)["id"])
-	var household models.Household
-	if err := models.DB.First(&household, id).Error; err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
+func userIsHouseholdMember(db *gorm.DB, userID uint, householdID uint) (bool, string) {
+	var hm models.HouseholdMember
+	if err := db.Where("user_id = ? AND household_id = ?", userID, householdID).First(&hm).Error; err != nil {
+		return false, ""
 	}
-	if !middleware.CheckHouseholdOwnership(r.Context(), userID, household.ID) {
-		http.Error(w, "Forbidden: Not your household", http.StatusForbidden)
-		return
+	return true, hm.Role
+}
+
+func parseUintString(s string) (uint, bool) {
+	id64, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, false
 	}
-	if err := models.DB.Delete(&household).Error; err != nil {
-		http.Error(w, "Error deleting household", http.StatusInternalServerError)
-		return
-	}
-	json.NewEncoder(w).Encode(map[string]string{"message": "Household deleted"})
+	return uint(id64), true
 }

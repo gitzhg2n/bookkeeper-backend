@@ -22,7 +22,7 @@ func (h *UserHandler) Me(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	writeJSONSuccess(w, "ok", map[string]interface{}{
+	writeJSONSuccess(w, "ok", map[string]any{
 		"id":    user.ID,
 		"email": user.Email,
 		"role":  user.Role,

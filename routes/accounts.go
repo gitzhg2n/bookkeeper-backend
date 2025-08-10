@@ -1,205 +1,108 @@
 package routes
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
+	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/middleware"
-	"bookkeeper-backend/models"
-	"github.com/gorilla/mux"
+
+	"gorm.io/gorm"
 )
 
-type AccountRequest struct {
-	Name        string  `json:"name"`
-	Type        string  `json:"type"`
-	Institution string  `json:"institution"`
-	Balance     float64 `json:"balance"`
+type AccountHandler struct {
+	db *gorm.DB
 }
 
-func RegisterAccountRoutes(r *mux.Router) {
-	sub := r.PathPrefix("/accounts").Subrouter()
-	sub.Use(middleware.AuthMiddleware(models.DB))
-	sub.HandleFunc("", getAccounts).Methods("GET")
-	sub.HandleFunc("", createAccount).Methods("POST")
-	sub.HandleFunc("/{id}", updateAccount).Methods("PUT")
-	sub.HandleFunc("/{id}", deleteAccount).Methods("DELETE")
+func NewAccountHandler(db *gorm.DB) *AccountHandler {
+	return &AccountHandler{db: db}
 }
 
-func getAccounts(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
+type createAccountRequest struct {
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Currency          string `json:"currency"`
+	OpeningBalanceCents int64  `json:"opening_balance_cents"`
+}
 
-	userCtx := middleware.GetUserContext(ctx)
-	if userCtx == nil {
-		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
+func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request, householdIDStr string) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
+	hID, valid := parseUintString(householdIDStr)
+	if !valid {
+		writeJSONError(w, "invalid household id", http.StatusBadRequest)
+		return
+	}
+	member, _ := userIsHouseholdMember(h.db, user.ID, hID)
+	if !member {
+		writeJSONError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var req createAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || sanitizeString(req.Name) == "" {
+		writeJSONError(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if req.Type == "" {
+		req.Type = "checking"
+	}
+	if req.Currency == "" {
+		req.Currency = "USD"
+	}
+	acc := &models.Account{
+		HouseholdID:         hID,
+		Name:                sanitizeString(req.Name),
+		Type:                req.Type,
+		Currency:            req.Currency,
+		OpeningBalanceCents: req.OpeningBalanceCents,
+	}
+	if err := h.db.Create(acc).Error; err != nil {
+		writeJSONError(w, "create failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSONSuccess(w, "created", acc)
+}
+
+func (h *AccountHandler) List(w http.ResponseWriter, r *http.Request, householdIDStr string) {
+	user, ok := middleware.UserFrom(r.Context())
+	if !ok {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	hID, valid := parseUintString(householdIDStr)
+	if !valid {
+		writeJSONError(w, "invalid household id", http.StatusBadRequest)
+		return
+	}
+	member, _ := userIsHouseholdMember(h.db, user.ID, hID)
+	if !member {
+		writeJSONError(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var accounts []models.Account
-	if err := models.DB.WithContext(ctx).Where("household_id IN ?", userCtx.HouseholdIDs).Find(&accounts).Error; err != nil {
-		writeJSONError(w, "Failed to retrieve accounts", http.StatusInternalServerError)
-		return
-	}
-	
-	writeJSON(w, accounts, http.StatusOK)
+	h.db.Where("household_id = ?", hID).Find(&accounts)
+	writeJSONSuccess(w, "ok", accounts)
 }
 
-func createAccount(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	userCtx := middleware.GetUserContext(ctx)
-	if userCtx == nil {
-		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
-		return
-	}
-	
-	var req AccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	
-	// Validate required fields
-	if req.Name == "" || req.Type == "" {
-		writeJSONError(w, "Missing required fields: name and type", http.StatusBadRequest)
-		return
-	}
-	
-	// Validate account type
-	validTypes := map[string]bool{
-		"checking":  true,
-		"savings":   true,
-		"credit":    true,
-		"investment": true,
-		"loan":      true,
-	}
-	if !validTypes[req.Type] {
-		writeJSONError(w, "Invalid account type", http.StatusBadRequest)
-		return
-	}
-	
-	if len(userCtx.HouseholdIDs) == 0 {
-		writeJSONError(w, "No household found for user", http.StatusBadRequest)
-		return
-	}
-	
-	account := models.Account{
-		Name:        req.Name,
-		Type:        req.Type,
-		Institution: req.Institution,
-		Balance:     req.Balance,
-		HouseholdID: userCtx.HouseholdIDs[0],
-	}
-	
-	if err := models.DB.WithContext(ctx).Create(&account).Error; err != nil {
-		writeJSONError(w, "Failed to create account", http.StatusInternalServerError)
-		return
-	}
-	
-	writeJSONSuccess(w, "Account created successfully", account)
-}
-
-func updateAccount(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	userCtx := middleware.GetUserContext(ctx)
-	if userCtx == nil {
-		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
-		return
-	}
-	
-	idStr := mux.Vars(r)["id"]
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		writeJSONError(w, "Invalid account ID", http.StatusBadRequest)
-		return
-	}
-	
-	if !middleware.CheckAccountOwnership(ctx, userCtx.ID, uint(id)) {
-		writeJSONError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-
-	var req AccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	
+func (h *AccountHandler) ensureOwnership(userID, accountID uint) (*models.Account, bool) {
 	var acc models.Account
-	if err := models.DB.WithContext(ctx).First(&acc, id).Error; err != nil {
-		writeJSONError(w, "Account not found", http.StatusNotFound)
-		return
+	if err := h.db.First(&acc, accountID).Error; err != nil {
+		return nil, false
 	}
-	
-	// Update only allowed fields
-	if req.Name != "" {
-		acc.Name = req.Name
+	isMember, _ := userIsHouseholdMember(h.db, userID, acc.HouseholdID)
+	if !isMember {
+		return nil, false
 	}
-	if req.Type != "" {
-		validTypes := map[string]bool{
-			"checking":  true,
-			"savings":   true,
-			"credit":    true,
-			"investment": true,
-			"loan":      true,
-		}
-		if !validTypes[req.Type] {
-			writeJSONError(w, "Invalid account type", http.StatusBadRequest)
-			return
-		}
-		acc.Type = req.Type
-	}
-	if req.Institution != "" {
-		acc.Institution = req.Institution
-	}
-	acc.Balance = req.Balance // Allow zero balance
-	
-	if err := models.DB.WithContext(ctx).Save(&acc).Error; err != nil {
-		writeJSONError(w, "Failed to update account", http.StatusInternalServerError)
-		return
-	}
-	
-	writeJSONSuccess(w, "Account updated successfully", acc)
+	return &acc, true
 }
 
-func deleteAccount(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	userCtx := middleware.GetUserContext(ctx)
-	if userCtx == nil {
-		writeJSONError(w, "Authentication required", http.StatusUnauthorized)
-		return
-	}
-	
-	idStr := mux.Vars(r)["id"]
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		writeJSONError(w, "Invalid account ID", http.StatusBadRequest)
-		return
-	}
-	
-	if !middleware.CheckAccountOwnership(ctx, userCtx.ID, uint(id)) {
-		writeJSONError(w, "Access denied", http.StatusForbidden)
-		return
-	}
-	
-	var acc models.Account
-	if err := models.DB.WithContext(ctx).First(&acc, id).Error; err != nil {
-		writeJSONError(w, "Account not found", http.StatusNotFound)
-		return
-	}
-	
-	if err := models.DB.WithContext(ctx).Delete(&acc).Error; err != nil {
-		writeJSONError(w, "Failed to delete account", http.StatusInternalServerError)
-		return
-	}
-	
-	writeJSONSuccess(w, "Account deleted successfully", nil)
+// For potential future update endpoints
+func (h *AccountHandler) archiveAccount(acc *models.Account) {
+	now := time.Now()
+	acc.ArchivedAt = &now
+	h.db.Save(acc)
 }
