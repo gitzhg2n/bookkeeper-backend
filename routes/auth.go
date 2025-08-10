@@ -2,206 +2,210 @@ package routes
 
 import (
 	"encoding/json"
-	"log"
+	"errors"
 	"net/http"
-	"os"
-	"regexp"
 	"time"
 
-	"bookkeeper-backend/models"
+	"bookkeeper-backend/config"
+	"bookkeeper-backend/internal/models"
+	"bookkeeper-backend/middleware"
+	"bookkeeper-backend/security"
+
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/gorilla/mux"
-	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
-var jwtSecret []byte
-
-func init() {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		log.Fatal("JWT_SECRET environment variable is required")
-	}
-	if len(secret) < 32 {
-		log.Fatal("JWT_SECRET must be at least 32 characters long")
-	}
-	jwtSecret = []byte(secret)
+type AuthHandler struct {
+	cfg *config.Config
+	db  *gorm.DB
 }
 
-type registerPayload struct {
-	Email         string `json:"email"`
-	Password      string `json:"password"`
-	RecoverySeed  string `json:"recoverySeed"`
+func NewAuthHandler(cfg *config.Config, db *gorm.DB) *AuthHandler {
+	return &AuthHandler{cfg: cfg, db: db}
 }
 
-type loginPayload struct {
+type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type recoverPayload struct {
-	Email        string `json:"email"`
-	RecoverySeed string `json:"recoverySeed"`
-	NewPassword  string `json:"newPassword"`
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
-var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-
-// isValidEmail validates email format
-func isValidEmail(email string) bool {
-	return emailRegex.MatchString(email)
+type authResponse struct {
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	UserID       uint      `json:"user_id"`
+	Email        string    `json:"email"`
 }
 
-func RegisterAuthRoutes(r *mux.Router) {
-	sub := r.PathPrefix("/auth").Subrouter()
-	sub.HandleFunc("/register", registerUser).Methods("POST")
-	sub.HandleFunc("/login", loginUser).Methods("POST")
-	sub.HandleFunc("/recover", recoverUser).Methods("POST")
-}
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	req.Email = sanitizeString(req.Email)
+	if req.Email == "" || req.Password == "" {
+		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		return
+	}
 
-func registerUser(w http.ResponseWriter, r *http.Request) {
-	var payload registerPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+	if err := security.ValidatePasswordStrength(req.Password, h.cfg.AllowInsecurePassword); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if payload.Email == "" || payload.Password == "" || payload.RecoverySeed == "" {
-		writeJSONError(w, "Missing required fields: email, password, and recoverySeed", http.StatusBadRequest)
-		return
+
+	// Prepare argon params
+	argonParams := security.ArgonParams{
+		MemoryKiB:   h.cfg.PasswordMemoryKiB,
+		Time:        h.cfg.PasswordTime,
+		Parallelism: h.cfg.PasswordParallelism,
+		SaltLength:  h.cfg.PasswordSaltLength,
+		KeyLength:   h.cfg.PasswordKeyLength,
 	}
-	
-	// Basic email validation
-	if !isValidEmail(payload.Email) {
-		writeJSONError(w, "Invalid email format", http.StatusBadRequest)
-		return
-	}
-	
-	// Password strength validation
-	if len(payload.Password) < 8 {
-		writeJSONError(w, "Password must be at least 8 characters long", http.StatusBadRequest)
-		return
-	}
-	
-	var count int64
-	models.DB.Model(&models.User{}).Where("email = ?", payload.Email).Count(&count)
-	if count > 0 {
-		writeJSONError(w, "Email already registered", http.StatusConflict)
-		return
-	}
-	
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(payload.Password), 12)
+
+	argonSalt, err := security.RandomBytes(int(argonParams.SaltLength))
 	if err != nil {
-		writeJSONError(w, "Server error during registration", http.StatusInternalServerError)
+		writeJSONError(w, "internal error (salt gen)", http.StatusInternalServerError)
 		return
 	}
-	recoverySeedHash, err := models.HashRecoverySeed(payload.RecoverySeed)
+	passwordKey := security.DeriveKey(req.Password, argonSalt, argonParams)
+
+	// KDF to produce KEK (reuse derived passwordKey as KEK for now – later we can HKDF)
+	kek := passwordKey
+
+	// Wrap fresh DEK
+	_, encryptedDEK, err := security.WrapDEK(kek)
 	if err != nil {
-		writeJSONError(w, "Server error during registration", http.StatusInternalServerError)
+		writeJSONError(w, "internal error (wrap)", http.StatusInternalServerError)
 		return
 	}
-	
-	user := models.User{
-		Email:            payload.Email,
-		PasswordHash:     string(passwordHash),
-		RecoverySeedHash: recoverySeedHash,
+
+	user := &models.User{
+		Email:            req.Email,
+		PasswordHash:     passwordKey, // For MVP we are storing raw Argon derived key; later we can store PHC formatted string
+		EncryptedDEK:     encryptedDEK.Ciphertext,
+		DEKNonce:         encryptedDEK.Nonce,
+		ArgonMemoryKiB:   argonParams.MemoryKiB,
+		ArgonTime:        argonParams.Time,
+		ArgonParallelism: argonParams.Parallelism,
+		ArgonSalt:        argonSalt,
+		ArgonKeyLength:   argonParams.KeyLength,
+		KDFVersion:       h.cfg.EncryptionKeyVersion,
 	}
-	if err := models.DB.Create(&user).Error; err != nil {
-		writeJSONError(w, "Server error during registration", http.StatusInternalServerError)
+
+	if err := h.db.Create(user).Error; err != nil {
+		writeJSONError(w, "user create failed (maybe duplicate email)", http.StatusConflict)
 		return
 	}
-	
-	writeJSONSuccess(w, "User registered successfully", map[string]interface{}{
-		"id":    user.ID,
-		"email": user.Email,
-		"role":  user.Role,
+
+	accessToken, refreshToken, exp, err := h.issueTokens(user)
+	if err != nil {
+		writeJSONError(w, "token issue failed", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONSuccess(w, "registered", authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    exp,
+		UserID:       user.ID,
+		Email:        user.Email,
 	})
 }
 
-func loginUser(w http.ResponseWriter, r *http.Request) {
-	var payload loginPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
-	if payload.Email == "" || payload.Password == "" {
-		writeJSONError(w, "Missing required fields: email and password", http.StatusBadRequest)
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	
+	req.Email = sanitizeString(req.Email)
+	if req.Email == "" || req.Password == "" {
+		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+
 	var user models.User
-	if err := models.DB.Where("email = ?", payload.Email).First(&user).Error; err != nil {
-		writeJSONError(w, "Invalid credentials", http.StatusUnauthorized)
+	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(payload.Password)); err != nil {
-		writeJSONError(w, "Invalid credentials", http.StatusUnauthorized)
+
+	// Re-derive password key
+	argonParams := security.ArgonParams{
+		MemoryKiB:   user.ArgonMemoryKiB,
+		Time:        user.ArgonTime,
+		Parallelism: user.ArgonParallelism,
+		SaltLength:  uint32(len(user.ArgonSalt)),
+		KeyLength:   user.ArgonKeyLength,
+	}
+	key := security.DeriveKey(req.Password, user.ArgonSalt, argonParams)
+	if !security.ConstantTimeCompare(key, user.PasswordHash) {
+		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID,
-		"email":   user.Email,
-		"role":    user.Role,
-		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(),
-		"iat":     time.Now().Unix(),
-	})
-	
-	tokenString, err := token.SignedString(jwtSecret)
+
+	accessToken, refreshToken, exp, err := h.issueTokens(&user)
 	if err != nil {
-		writeJSONError(w, "Server error during login", http.StatusInternalServerError)
+		writeJSONError(w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
-	
-	writeJSONSuccess(w, "Login successful", map[string]interface{}{
-		"token": tokenString,
-		"user": map[string]interface{}{
-			"id":    user.ID,
-			"email": user.Email,
-			"role":  user.Role,
+
+	writeJSONSuccess(w, "authenticated", authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    exp,
+		UserID:       user.ID,
+		Email:        user.Email,
+	})
+}
+
+func (h *AuthHandler) issueTokens(u *models.User) (accessToken, refreshToken string, expires time.Time, err error) {
+	now := time.Now()
+	accessExp := now.Add(h.cfg.AccessTokenTTL)
+	refreshExp := now.Add(h.cfg.RefreshTokenTTL)
+
+	accessClaims := middleware.Claims{
+		UserID: u.ID,
+		Email:  u.Email,
+		Role:   "user",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(accessExp),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
-	})
+	}
+	refreshClaims := middleware.Claims{
+		UserID: u.ID,
+		Email:  u.Email,
+		Role:   "user",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(refreshExp),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
+	at, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(h.cfg.JWTSecret)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	rt, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(h.cfg.JWTSecret)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	return at, rt, accessExp, nil
 }
 
-func recoverUser(w http.ResponseWriter, r *http.Request) {
-	var payload recoverPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	
-	if payload.Email == "" || payload.RecoverySeed == "" || payload.NewPassword == "" {
-		writeJSONError(w, "Missing required fields: email, recoverySeed, and newPassword", http.StatusBadRequest)
-		return
-	}
-	
-	if len(payload.NewPassword) < 8 {
-		writeJSONError(w, "New password must be at least 8 characters long", http.StatusBadRequest)
-		return
-	}
-	
-	var user models.User
-	if err := models.DB.Where("email = ?", payload.Email).First(&user).Error; err != nil {
-		writeJSONError(w, "User not found", http.StatusNotFound)
-		return
-	}
-	
-	if !models.CheckRecoverySeed(payload.RecoverySeed, user.RecoverySeedHash) {
-		writeJSONError(w, "Invalid recovery seed", http.StatusUnauthorized)
-		return
-	}
-	
-	newHash, err := bcrypt.GenerateFromPassword([]byte(payload.NewPassword), 12)
-	if err != nil {
-		writeJSONError(w, "Server error during recovery", http.StatusInternalServerError)
-		return
-	}
-	
-	user.PasswordHash = string(newHash)
-	if err := models.DB.Save(&user).Error; err != nil {
-		writeJSONError(w, "Server error during recovery", http.StatusInternalServerError)
-		return
-	}
-	
-	writeJSONSuccess(w, "Password reset successful", nil)
-}
+// Placeholder for refresh endpoint logic (coming soon)
+var ErrNotImplemented = errors.New("not implemented")
