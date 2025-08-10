@@ -88,7 +88,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	passwordKey := security.DeriveKey(req.Password, argonSalt, argonParams)
-	kek := passwordKey
+	kek, err := security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")
+	if err != nil {
+		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	_, encDEK, err := security.WrapDEK(kek)
 	if err != nil {
 		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
