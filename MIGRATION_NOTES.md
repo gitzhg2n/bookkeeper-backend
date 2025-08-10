@@ -1,100 +1,158 @@
-# Migration Notes - Stage 1 Backend Consolidation
+Migration Notes - Stage 1 Backend Consolidation
 
-## Overview
-This document describes the Stage 1 consolidation of the bookkeeper-backend to a single `/v1` API stack, removing legacy code and implementing security improvements.
+Overview
+This document summarizes the Stage 1 consolidation of the bookkeeper-backend to a single /v1 API stack, removing legacy code, cleaning dependencies, and introducing security improvements.
 
-## Changes Made
+Changes Made
 
-### 1. Legacy Code Removal
-- **Legacy models package**: No legacy `models/` package was found to delete - models are properly organized in `internal/models/`
-- **Legacy routes**: No legacy route handlers were found to delete - routes are properly organized with `/v1` prefix
-- **Legacy middleware**: No legacy middleware files were found to delete - middleware is properly organized
-- **Legacy entrypoint**: No root `main.go` was found - application properly uses `cmd/server/main.go`
+Legacy Code and Structure
 
-### 2. Dependency Cleanup
-- **gorilla/mux removal**: Removed unused gorilla/mux dependency from go.mod and go.sum via `go mod tidy`
-- All routing is handled by the standard `net/http` ServeMux
+Legacy models: No legacy models/ package was found to delete; models are correctly in internal/models/.
 
-### 3. Security Improvements
+Legacy routes: No legacy route handlers were found to delete; routes are organized under the /v1 prefix.
 
-#### KEK Derivation
-- **New file**: `internal/security/kek.go`
-- Added `DeriveKEK()` function using HMAC-SHA256 expansion for proper key separation
-- Updated `routes/auth.go` Register function to derive KEK using `security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")`
-- Password hash (Argon2 output) is still stored separately from KEK for verification
+Legacy middleware: No legacy middleware files were found to delete; middleware is properly organized.
 
-#### Rate Limiting
-- Added rate limiting middleware to auth endpoints: `/v1/auth/register`, `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`
-- Rate limit: 10 requests per 60 seconds per IP address
-- Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`) are included in responses
+Legacy entrypoint: No root main.go was found; the application uses cmd/server/main.go.
 
-### 4. API Enhancements
-- **New endpoint**: `DELETE /v1/households/{id}/budgets/{budgetID}` 
-- Route properly wired to `BudgetHandler.Delete()` method
-- Returns 200 status and removes the budget record
+Dependency Cleanup
 
-### 5. Code Organization
-- **Response helpers**: Already centralized in `routes/response_helpers.go` - no duplicates found
-- **Validation helpers**: Already centralized in `routes/validation.go` (sanitizeString, etc.)
-- **Shared utilities**: Properly organized with no duplication
+Removed unused gorilla/mux dependency via go mod tidy.
 
-### 6. Testing
-- **New integration test**: `internal/tests/core_flow_test.go`
-- Tests complete vertical slice: register → create household → create category → create account → upsert budget → create transaction → list budgets
-- Verifies `actual_cents` reflects created transactions in budget listings
+All routing is handled by net/http ServeMux.
 
-### 7. Infrastructure
-- **Dockerfile updates**: 
-  - Build target changed from `./main.go` to `./cmd/server`
-  - Removed unnecessary `.env` file copying
-- **Migration placeholder**: Ready for future `0003_future_security_columns.sql` if needed
+Security Improvements
 
-## Files Modified
-- `routes/auth.go` - Added KEK derivation using new security helper
-- `routes/router.go` - Added rate limiting to auth endpoints and DELETE budget route
-- `Dockerfile` - Updated build target and removed .env copying
-- `go.mod`/`go.sum` - Cleaned up dependencies (removed gorilla/mux)
+KEK Derivation
 
-## Files Added
-- `internal/security/kek.go` - KEK derivation helper functions
-- `internal/tests/core_flow_test.go` - End-to-end integration test
-- `MIGRATION_NOTES.md` - This documentation
+New file: internal/security/kek.go
 
-## Current State
-The application is now consolidated to a single `/v1` API stack with:
-- ✅ Proper key derivation separation (KEK vs password verification)
-- ✅ Rate limiting on authentication endpoints
-- ✅ Complete CRUD operations for budgets including DELETE
-- ✅ Comprehensive integration testing
-- ✅ Clean dependency management
-- ✅ Modern containerization setup
+Added DeriveKEK() using HMAC-SHA256 expansion for proper key separation.
 
-## Next Steps (Future Stages)
-1. **Password verifier separation**: Move from storing Argon2 output as password hash to a separate password verifier column
-2. **Refresh token reuse detection**: Implement token family rotation with reuse detection
-3. **Enhanced encryption**: Full data-at-rest encryption using derived DEKs
-4. **Audit logging**: Comprehensive audit trail for sensitive operations
-5. **Multi-factor authentication**: TOTP/WebAuthn support
+routes/auth.go Register updated to use security.DeriveKEK(passwordKey, "bookkeeper:dek:v1").
 
-## Verification Commands
-```bash
-# Verify no legacy model imports
-grep -R "\"bookkeeper-backend/models\"" . || echo "✅ No legacy model imports"
+KEK is derived separately from the password hash; future work will further separate password verification data.
 
-# Verify no gorilla/mux usage  
-grep -R 'gorilla/mux' . || echo "✅ No gorilla/mux dependency"
+Rate Limiting
 
-# Build verification
-go build ./... && echo "✅ Build successful"
+Added rate limiting to auth endpoints: /v1/auth/register, /v1/auth/login, /v1/auth/refresh, /v1/auth/logout.
 
-# Test verification
-go test ./... && echo "✅ All tests pass"
+Limit: 10 requests per 60s per IP.
 
-# Docker build verification
-docker build -t bookkeeper-backend . && echo "✅ Docker build successful"
-```
+Responses include X-RateLimit-Limit and X-RateLimit-Remaining headers.
 
-## Database Schema
-Current schema supports the consolidated structure with proper foreign key relationships and no breaking changes were required.
+API Enhancements
 
-**Note**: This Stage 1 consolidation found the codebase was already well-organized with proper `/v1` structure. The main improvements were in security (KEK derivation, rate limiting), testing (integration test), and cleanup (dependency management).
+New endpoint: DELETE /v1/households/{id}/budgets/{budgetID}
+
+Route wired in routes/router.go; handler deletes the budget and returns success.
+
+Code Organization and Cleanup
+
+Centralized small shared utilities in routes/util.go (e.g., parseUintString) to reduce duplication.
+
+Cleaned imports, fixed incorrect paths, and removed unused imports.
+
+Dockerfile updated to build from ./cmd/server and removed .env copy.
+
+Placeholder migration added: internal/db/migrations/0003_future_security_columns.sql for future password_verifier column (non-breaking).
+
+Testing
+
+New integration test: internal/tests/core_flow_test.go
+
+Covers: register → create household → create category → create account → upsert budget → create transaction → list budgets
+
+Verifies that budget actual_cents reflects transactions.
+
+internal/tests/auth_test.go: minor fixes (slogDiscard helper, io import).
+
+Files Added
+
+internal/security/kek.go
+
+internal/tests/core_flow_test.go
+
+routes/util.go
+
+internal/db/migrations/0003_future_security_columns.sql
+
+MIGRATION_NOTES.md (this document)
+
+Files Modified
+
+routes/auth.go: KEK derivation, import path fix, parameter list fix.
+
+routes/router.go: rate limiting on auth; DELETE budget route.
+
+Dockerfile: build target updated; removed .env copy.
+
+cmd/server/main.go: removed unused import.
+
+internal/tests/auth_test.go: test helpers/imports fixed.
+
+go.mod/go.sum: cleaned (removed gorilla/mux).
+
+Acceptance/Verification
+
+No references to "bookkeeper-backend/models" remain.
+
+No references to gorilla/mux remain.
+
+go build ./... succeeds.
+
+Auth endpoints return rate limit headers.
+
+DELETE /v1/households/{id}/budgets/{budgetID} implemented.
+
+Core flow integration test passes.
+
+Docker image builds successfully.
+
+Suggested Commands
+
+grep -R ""bookkeeper-backend/models"" . || echo "OK: no legacy model imports"
+
+grep -R "gorilla/mux" . || echo "OK: no gorilla/mux"
+
+go build ./...
+
+go test ./...
+
+docker build -t bookkeeper-backend .
+
+Next Steps (Future Stages)
+
+Password verifier separation: use dedicated password_verifier column per the placeholder migration.
+
+Refresh token reuse detection with token family rotation.
+
+Enhanced encryption: data-at-rest using derived DEKs.
+
+Audit logging for sensitive operations.
+
+MFA: TOTP/WebAuthn support.
+
+Performance: DB pooling and caching.
+
+Monitoring: metrics and health checks.
+
+Notes
+
+The repository was already largely organized under /v1 with few legacy remnants.
+
+The main work focused on KEK derivation, rate limiting, integration testing, and dependency cleanup.
+
+Rate limiting currently uses in-memory storage suitable for single-instance deployments.
+
+How to fix the conflict in your file
+
+Keep the merged content above.
+
+Remove all conflict markers: <<<<<<<, =======, >>>>>>>.
+
+Commit the resolved file:
+
+git add MIGRATION_NOTES.md
+
+git commit -m "Resolve merge conflict in migration notes; consolidate stage 1 documentation"

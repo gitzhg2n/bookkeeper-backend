@@ -42,6 +42,10 @@ func setupTest(t *testing.T) *testEnv {
 	return &testEnv{DB: gdb, Server: srv}
 }
 
+func slogDiscard() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestRegisterLogin(t *testing.T) {
 	env := setupTest(t)
 
