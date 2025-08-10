@@ -9,8 +9,8 @@ import (
 
 	"bookkeeper-backend/config"
 	"bookkeeper-backend/internal/models"
-	"bookkeeper-backend/middleware"
 	"bookkeeper-backend/internal/security"
+	"bookkeeper-backend/middleware"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -31,16 +31,13 @@ type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
-
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
-
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
-
 type logoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
@@ -68,7 +65,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(r, w, "email and password required", http.StatusBadRequest)
 		return
 	}
-
 	if err := security.ValidatePasswordStrength(req.Password, h.cfg.AllowInsecurePassword); err != nil {
 		writeJSONError(r, w, err.Error(), http.StatusBadRequest)
 		return
@@ -81,26 +77,18 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		SaltLength:  h.cfg.PasswordSaltLength,
 		KeyLength:   h.cfg.PasswordKeyLength,
 	}
-
 	argonSalt, err := security.RandomBytes(int(argonParams.SaltLength))
 	if err != nil {
 		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	passwordKey := security.DeriveKey(req.Password, argonSalt, argonParams)
- copilot/fix-184f7982-e511-4e6f-9dc2-305d1c6b4c15
-	kek := security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")
-
-copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
-	kek := security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")
 
 	kek, err := security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")
 	if err != nil {
 		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
 		return
 	}
- main
- main
 	_, encDEK, err := security.WrapDEK(kek)
 	if err != nil {
 		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
@@ -109,7 +97,7 @@ copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
 
 	user := &models.User{
 		Email:            req.Email,
-		PasswordHash:     passwordKey,
+		PasswordHash:     passwordKey, // NOTE: Will be replaced by password_verifier in future migration
 		EncryptedDEK:     encDEK.Ciphertext,
 		DEKNonce:         encDEK.Nonce,
 		ArgonMemoryKiB:   argonParams.MemoryKiB,
@@ -119,7 +107,6 @@ copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
 		ArgonKeyLength:   argonParams.KeyLength,
 		KDFVersion:       h.cfg.EncryptionKeyVersion,
 	}
-
 	if err := h.db.Create(user).Error; err != nil {
 		writeJSONError(r, w, "user create failed", http.StatusConflict)
 		return
@@ -130,7 +117,6 @@ copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
 		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
-
 	writeJSONSuccess(r, w, "registered", authResponse{
 		AccessToken:  at,
 		RefreshToken: rt,
@@ -155,13 +141,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(r, w, "email and password required", http.StatusBadRequest)
 		return
 	}
-
 	var user models.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
-
 	argonParams := security.ArgonParams{
 		MemoryKiB:   user.ArgonMemoryKiB,
 		Time:        user.ArgonTime,
@@ -180,7 +164,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
-
 	writeJSONSuccess(r, w, "authenticated", authResponse{
 		AccessToken:  at,
 		RefreshToken: rt,
@@ -214,13 +197,11 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(r, w, "refresh expired or revoked", http.StatusUnauthorized)
 		return
 	}
-
 	var user models.User
 	if err := h.db.First(&user, claims.UserID).Error; err != nil {
 		writeJSONError(r, w, "user not found", http.StatusUnauthorized)
 		return
 	}
-
 	at, newRT, exp, err := h.issueTokens(&user)
 	if err != nil {
 		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
@@ -233,7 +214,6 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}).Error; err != nil {
 		h.logger.Warn("failed revoke refresh", "error", err)
 	}
-
 	writeJSONSuccess(r, w, "refreshed", authResponse{
 		AccessToken:  at,
 		RefreshToken: newRT,
@@ -260,7 +240,8 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().Unix()
-	h.db.Model(&models.RefreshToken{}).Where("id = ? AND user_id = ?", claims.ID, claims.UserID).
+	h.db.Model(&models.RefreshToken{}).
+		Where("id = ? AND user_id = ?", claims.ID, claims.UserID).
 		Updates(map[string]any{"revoked_at": &now})
 	writeJSONSuccess(r, w, "logged out", nil)
 }
@@ -269,20 +250,17 @@ func (h *AuthHandler) issueTokens(u *models.User) (accessToken, refreshToken str
 	now := time.Now()
 	accessExp := now.Add(h.cfg.AccessTokenTTL)
 	refreshExp := now.Add(h.cfg.RefreshTokenTTL)
-
-	jti := uuid.NewString()
-	refreshJTI := uuid.NewString()
-
 	accessClaims := middleware.Claims{
 		UserID: u.ID,
 		Email:  u.Email,
 		Role:   "user",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        jti,
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(accessExp),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
+	refreshJTI := uuid.NewString()
 	refreshClaims := middleware.Claims{
 		UserID: u.ID,
 		Email:  u.Email,

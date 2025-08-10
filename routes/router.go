@@ -18,23 +18,11 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		writeJSONSuccess(r, w, "ok", map[string]string{"status": "up"})
 	})
 
- copilot/fix-184f7982-e511-4e6f-9dc2-305d1c6b4c15
-	// Rate limiter for auth endpoints (10 requests / 60s per IP)
-	authRateLimit := middleware.NewRateLimiter().Limit(60000, 10)
-
-	authHandler := NewAuthHandler(cfg, gdb, logger)
-
-	// Rate limiter for auth endpoints (10 requests per 60 seconds per IP)
-	authRateLimit := middleware.NewRateLimiter().Limit(60000, 10)
-
-	authHandler := NewAuthHandler(cfg, gdb, logger)
- copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
+	// Auth + rate limiting (10 req per 60s per IP)
 	rateLimiter := middleware.NewRateLimiter()
-	authRateLimit := rateLimiter.Limit(60000, 10) // 10 requests per 60 seconds (60000ms)
-	
+	authRateLimit := rateLimiter.Limit(60000, 10)
 
- main
- main
+	authHandler := NewAuthHandler(cfg, gdb, logger)
 	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
 	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))
@@ -51,7 +39,6 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 
 	mux.Handle("/v1/users/me", protected(http.HandlerFunc(userHandler.Me)))
 
-	// Households root
 	mux.Handle("/v1/households", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -63,77 +50,37 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		}
 	})))
 
-	// Nested resources under /v1/households/{id}/...
 	mux.Handle("/v1/households/", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/v1/households/")
 		parts := strings.Split(path, "/")
-
-		if len(parts) >= 2 {
-			householdID := parts[0]
-			switch parts[1] {
-			case "accounts":
-				switch r.Method {
-				case http.MethodPost:
-					accounts.Create(w, r, householdID)
-				case http.MethodGet:
-					accounts.List(w, r, householdID)
-				default:
-					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
-				}
-				return
-			case "categories":
-				switch r.Method {
-				case http.MethodPost:
-					categories.Create(w, r, householdID)
-				case http.MethodGet:
-					categories.List(w, r, householdID)
-				default:
-					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
-				}
-				return
-			case "budgets":
- copilot/fix-184f7982-e511-4e6f-9dc2-305d1c6b4c15
-
- copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
- main
-				// Handle both /v1/households/{id}/budgets and /v1/households/{id}/budgets/{budgetID}
-				if len(parts) == 2 {
-					// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
-					switch r.Method {
-					case http.MethodPost:
-						budgets.Create(w, r, householdID)
-					case http.MethodGet:
-						budgets.List(w, r, householdID)
-					case http.MethodPut:
-						budgets.Upsert(w, r, householdID)
-					default:
-						writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
-					}
-				} else if len(parts) == 3 {
-					// /v1/households/{id}/budgets/{budgetID}
-					budgetID := parts[2]
-					switch r.Method {
-					case http.MethodDelete:
-						budgets.Delete(w, r, householdID, budgetID)
-					default:
-						writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
-					}
-				} else {
-					writeJSONError(r, w, "not found", http.StatusNotFound)
- copilot/fix-184f7982-e511-4e6f-9dc2-305d1c6b4c15
-
-
-				if len(parts) >= 3 {
-					// /v1/households/{id}/budgets/{budgetID} - DELETE specific budget
-					budgetID := parts[2]
-					if r.Method == http.MethodDelete {
-						budgets.Delete(w, r, householdID, budgetID)
-						return
-					}
-					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
-					return
-				}
-				// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
+		if len(parts) < 2 {
+			writeJSONError(r, w, "not found", http.StatusNotFound)
+			return
+		}
+		householdID := parts[0]
+		switch parts[1] {
+		case "accounts":
+			switch r.Method {
+			case http.MethodPost:
+				accounts.Create(w, r, householdID)
+			case http.MethodGet:
+				accounts.List(w, r, householdID)
+			default:
+				writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		case "categories":
+			switch r.Method {
+			case http.MethodPost:
+				categories.Create(w, r, householdID)
+			case http.MethodGet:
+				categories.List(w, r, householdID)
+			default:
+				writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		case "budgets":
+			if len(parts) == 2 {
 				switch r.Method {
 				case http.MethodPost:
 					budgets.Create(w, r, householdID)
@@ -143,24 +90,32 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 					budgets.Upsert(w, r, householdID)
 				default:
 					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
- main
- main
 				}
 				return
-			case "budget_summary":
-				// GET /v1/households/{id}/budget_summary?month=YYYY-MM
-				if r.Method == http.MethodGet {
-					budgets.Summary(w, r, householdID)
+			}
+			if len(parts) == 3 {
+				if r.Method == http.MethodDelete {
+					budgets.Delete(w, r, householdID, parts[2])
 					return
 				}
 				writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
+			writeJSONError(r, w, "not found", http.StatusNotFound)
+			return
+		case "budget_summary":
+			if r.Method == http.MethodGet {
+				budgets.Summary(w, r, householdID)
+				return
+			}
+			writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		default:
+			writeJSONError(r, w, "not found", http.StatusNotFound)
+			return
 		}
-		writeJSONError(r, w, "not found", http.StatusNotFound)
 	})))
 
-	// Accounts transactions: /v1/accounts/{id}/transactions
 	mux.Handle("/v1/accounts/", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/v1/accounts/")
 		parts := strings.Split(path, "/")
@@ -169,12 +124,11 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 			switch r.Method {
 			case http.MethodPost:
 				transactions.Create(w, r, accountID)
-				return
 			case http.MethodGet:
 				transactions.List(w, r, accountID)
-				return
+			default:
+				writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 			}
-			writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		writeJSONError(r, w, "not found", http.StatusNotFound)
