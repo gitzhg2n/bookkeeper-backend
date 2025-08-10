@@ -16,7 +16,6 @@ type User struct {
 	KDFVersion       int       `json:"-"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
-	// Future: Plan fields, recovery, etc.
 }
 
 type RefreshToken struct {
@@ -42,20 +41,20 @@ type HouseholdMember struct {
 	ID          uint      `gorm:"primaryKey"`
 	HouseholdID uint      `gorm:"index"`
 	UserID      uint      `gorm:"index"`
-	Role        string    `gorm:"size:32"` // owner, member
+	Role        string    `gorm:"size:32"`
 	CreatedAt   time.Time
 }
 
 type Account struct {
-	ID           uint      `gorm:"primaryKey"`
-	HouseholdID  uint      `gorm:"index"`
-	Name         string    `gorm:"size:255"`
-	Type         string    `gorm:"size:32"` // checking, savings, credit, loan, investment, cash
-	Currency     string    `gorm:"size:8"`
+	ID                  uint       `gorm:"primaryKey"`
+	HouseholdID         uint       `gorm:"index"`
+	Name                string     `gorm:"size:255"`
+	Type                string     `gorm:"size:32"`
+	Currency            string     `gorm:"size:8"`
 	OpeningBalanceCents int64
-	ArchivedAt   *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ArchivedAt          *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type Category struct {
@@ -68,13 +67,13 @@ type Category struct {
 }
 
 type Budget struct {
-	ID          uint      `gorm:"primaryKey"`
-	HouseholdID uint      `gorm:"index:uniq_budget,unique"`
-	Month       string    `gorm:"size:7;index:uniq_budget,unique"` // YYYY-MM
-	CategoryID  uint      `gorm:"index:uniq_budget,unique"`
+	ID           uint      `gorm:"primaryKey"`
+	HouseholdID  uint      `gorm:"index:uniq_budget,unique"`
+	Month        string    `gorm:"size:7;index:uniq_budget,unique"`
+	CategoryID   uint      `gorm:"index:uniq_budget,unique"`
 	PlannedCents int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Transaction struct {
