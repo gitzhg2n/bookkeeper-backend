@@ -3,7 +3,6 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"bookkeeper-backend/internal/models"
@@ -82,12 +81,4 @@ func userIsHouseholdMember(db *gorm.DB, userID uint, householdID uint) (bool, st
 		return false, ""
 	}
 	return true, hm.Role
-}
-
-func parseUintString(s string) (uint, bool) {
-	id64, err := strconv.ParseUint(s, 10, 32)
-	if err != nil {
-		return 0, false
-	}
-	return uint(id64), true
 }

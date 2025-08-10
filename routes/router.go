@@ -19,10 +19,13 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	})
 
 	authHandler := NewAuthHandler(cfg, gdb, logger)
-	mux.HandleFunc("/v1/auth/register", authHandler.Register)
-	mux.HandleFunc("/v1/auth/login", authHandler.Login)
-	mux.HandleFunc("/v1/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("/v1/auth/logout", authHandler.Logout)
+	rateLimiter := middleware.NewRateLimiter()
+	authRateLimit := rateLimiter.Limit(60000, 10) // 10 requests per 60 seconds (60000ms)
+	
+	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
+	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
+	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))
+	mux.Handle("/v1/auth/logout", authRateLimit(http.HandlerFunc(authHandler.Logout)))
 
 	userHandler := NewUserHandler(gdb)
 	households := NewHouseholdHandler(gdb)
@@ -76,16 +79,30 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 				}
 				return
 			case "budgets":
-				// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
-				switch r.Method {
-				case http.MethodPost:
-					budgets.Create(w, r, householdID)
-				case http.MethodGet:
-					budgets.List(w, r, householdID)
-				case http.MethodPut:
-					budgets.Upsert(w, r, householdID)
-				default:
-					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+				// Handle both /v1/households/{id}/budgets and /v1/households/{id}/budgets/{budgetID}
+				if len(parts) == 2 {
+					// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
+					switch r.Method {
+					case http.MethodPost:
+						budgets.Create(w, r, householdID)
+					case http.MethodGet:
+						budgets.List(w, r, householdID)
+					case http.MethodPut:
+						budgets.Upsert(w, r, householdID)
+					default:
+						writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+					}
+				} else if len(parts) == 3 {
+					// /v1/households/{id}/budgets/{budgetID}
+					budgetID := parts[2]
+					switch r.Method {
+					case http.MethodDelete:
+						budgets.Delete(w, r, householdID, budgetID)
+					default:
+						writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+					}
+				} else {
+					writeJSONError(r, w, "not found", http.StatusNotFound)
 				}
 				return
 			case "budget_summary":
