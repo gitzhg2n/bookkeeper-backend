@@ -22,6 +22,10 @@ type testEnv struct {
 	Server http.Handler
 }
 
+func slogDiscard() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func setupTest(t *testing.T) *testEnv {
 	t.Helper()
 	_ = os.Setenv("JWT_SECRET", "0123456789abcdefghijklmnopqrstuvwxyz012345")

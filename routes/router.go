@@ -18,10 +18,16 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		writeJSONSuccess(r, w, "ok", map[string]string{"status": "up"})
 	})
 
+	// Rate limiter for auth endpoints (10 requests per 60 seconds per IP)
+	authRateLimit := middleware.NewRateLimiter().Limit(60000, 10)
+
 	authHandler := NewAuthHandler(cfg, gdb, logger)
+ copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
 	rateLimiter := middleware.NewRateLimiter()
 	authRateLimit := rateLimiter.Limit(60000, 10) // 10 requests per 60 seconds (60000ms)
 	
+
+ main
 	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
 	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))
@@ -79,6 +85,7 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 				}
 				return
 			case "budgets":
+ copilot/fix-bf106389-f58d-4461-b471-056cdc30d4c5
 				// Handle both /v1/households/{id}/budgets and /v1/households/{id}/budgets/{budgetID}
 				if len(parts) == 2 {
 					// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
@@ -103,6 +110,28 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 					}
 				} else {
 					writeJSONError(r, w, "not found", http.StatusNotFound)
+
+				if len(parts) >= 3 {
+					// /v1/households/{id}/budgets/{budgetID} - DELETE specific budget
+					budgetID := parts[2]
+					if r.Method == http.MethodDelete {
+						budgets.Delete(w, r, householdID, budgetID)
+						return
+					}
+					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
+				switch r.Method {
+				case http.MethodPost:
+					budgets.Create(w, r, householdID)
+				case http.MethodGet:
+					budgets.List(w, r, householdID)
+				case http.MethodPut:
+					budgets.Upsert(w, r, householdID)
+				default:
+					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+ main
 				}
 				return
 			case "budget_summary":
