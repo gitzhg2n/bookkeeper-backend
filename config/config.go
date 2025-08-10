@@ -20,7 +20,6 @@ type Config struct {
 	RateLimitWindow      time.Duration
 	RateLimitMaxRequests int
 
-	// Auth / Security
 	AccessTokenTTL        time.Duration
 	RefreshTokenTTL       time.Duration
 	PasswordMemoryKiB     uint32
@@ -46,7 +45,7 @@ func Load() *Config {
 		RateLimitMaxRequests: parseInt("RATE_LIMIT_MAX_REQUESTS", 100),
 
 		AccessTokenTTL:       parseDuration("ACCESS_TOKEN_TTL", "15m"),
-		RefreshTokenTTL:      parseDuration("REFRESH_TOKEN_TTL", "720h"), // 30d
+		RefreshTokenTTL:      parseDuration("REFRESH_TOKEN_TTL", "720h"),
 		PasswordMemoryKiB:    uintEnv("PASSWORD_MEMORY_KIB", 64*1024),
 		PasswordTime:         uintEnv("PASSWORD_TIME", 3),
 		PasswordParallelism:  uint8Env("PASSWORD_PARALLELISM", 1),
@@ -68,73 +67,18 @@ func Load() *Config {
 	return cfg
 }
 
-func getEnv(key, def string) string {
-	val := os.Getenv(key)
-	if val != "" {
-		return val
-	}
-	return def
-}
-
-func parseDuration(key, def string) time.Duration {
-	v := getEnv(key, def)
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		log.Printf("invalid duration for %s=%s using default %s", key, v, def)
-		d, _ = time.ParseDuration(def)
-	}
-	return d
-}
-
-func parseInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	i, err := strconv.Atoi(v)
-	if err != nil {
-		log.Printf("invalid int for %s=%s using default %d", key, v, def)
-		return def
-	}
-	return i
-}
-
-func uintEnv(key string, def uint32) uint32 {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	i, err := strconv.ParseUint(v, 10, 32)
-	if err != nil {
-		log.Printf("invalid uint for %s=%s using default %d", key, v, def)
-		return def
-	}
-	return uint32(i)
-}
-
-func uint8Env(key string, def uint8) uint8 {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	i, err := strconv.ParseUint(v, 10, 8)
-	if err != nil {
-		log.Printf("invalid uint8 for %s=%s using default %d", key, v, def)
-		return def
-	}
-	return uint8(i)
-}
-
+// (helpers unchanged below)
+func getEnv(key, def string) string { val := os.Getenv(key); if val != "" { return val }; return def }
+func parseDuration(key, def string) time.Duration { v := getEnv(key, def); d, err := time.ParseDuration(v); if err != nil { log.Printf("invalid duration for %s=%s using default %s", key, v, def); d, _ = time.ParseDuration(def) }; return d }
+func parseInt(key string, def int) int { v := os.Getenv(key); if v == "" { return def }; i, err := strconv.Atoi(v); if err != nil { log.Printf("invalid int for %s=%s using default %d", key, v, def); return def }; return i }
+func uintEnv(key string, def uint32) uint32 { v := os.Getenv(key); if v == "" { return def }; i, err := strconv.ParseUint(v, 10, 32); if err != nil { log.Printf("invalid uint for %s=%s using default %d", key, v, def); return def }; return uint32(i) }
+func uint8Env(key string, def uint8) uint8 { v := os.Getenv(key); if v == "" { return def }; i, err := strconv.ParseUint(v, 10, 8); if err != nil { log.Printf("invalid uint8 for %s=%s using default %d", key, v, def); return def }; return uint8(i) }
 func boolEnv(key string, def bool) bool {
 	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	if v == "1" || v == "true" || v == "TRUE" || v == "yes" {
-		return true
-	}
-	if v == "0" || v == "false" || v == "FALSE" || v == "no" {
-		return false
+	if v == "" { return def }
+	switch v {
+	case "1","true","TRUE","yes","y": return true
+	case "0","false","FALSE","no","n": return false
 	}
 	return def
 }
