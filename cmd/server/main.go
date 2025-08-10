@@ -11,7 +11,6 @@ import (
 	"bookkeeper-backend/config"
 	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/routes"
-	"time"
 )
 
 func main() {

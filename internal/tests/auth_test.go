@@ -3,6 +3,8 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,6 +36,10 @@ func setupTest(t *testing.T) *testEnv {
 	logger := slogDiscard()
 	srv := routes.BuildRouter(cfg, gdb, logger)
 	return &testEnv{DB: gdb, Server: srv}
+}
+
+func slogDiscard() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func TestRegisterLogin(t *testing.T) {
