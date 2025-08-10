@@ -13,7 +13,7 @@ func Logging(logger *slog.Logger) func(http.Handler) http.Handler {
 			rw := &responseWriter{ResponseWriter: w, status: 200}
 			next.ServeHTTP(rw, r)
 			lat := time.Since(start)
-			reqID, _ := RequestIDFrom(r.Context())
+			reqID, _ := RequestIDFromContext(r.Context())
 			logger.Info("request",
 				"method", r.Method,
 				"path", r.URL.Path,

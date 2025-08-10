@@ -10,7 +10,8 @@ import (
 type requestIDKeyType struct{}
 var requestIDKey = requestIDKeyType{}
 
-func RequestIDFrom(ctx context.Context) (string, bool) {
+// RequestIDFromContext returns the request id stored in context.
+func RequestIDFromContext(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(requestIDKey).(string)
 	return id, ok
 }
