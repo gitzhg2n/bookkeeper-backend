@@ -2,22 +2,20 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"bookkeeper-backend/config"
 	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/routes"
+	"time"
 )
 
 func main() {
 	cfg := config.Load()
-
 	logger := setupLogger(cfg)
 	slog.SetDefault(logger)
 
