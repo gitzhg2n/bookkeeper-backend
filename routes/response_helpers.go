@@ -1,4 +1,3 @@
-// REPLACE previous file with corrected correlation ID extraction
 package routes
 
 import (
@@ -21,25 +20,24 @@ type SuccessResponse struct {
 	CorrelationID string      `json:"correlation_id,omitempty"`
 }
 
-func writeJSONError(w http.ResponseWriter, message string, code int) {
+func writeJSONError(r *http.Request, w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+	corrID, _ := middleware.RequestIDFromContext(r.Context())
 	_ = json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   http.StatusText(code),
-		Message: message,
-		Code:    code,
+		Error:         http.StatusText(code),
+		Message:       message,
+		Code:          code,
+		CorrelationID: corrID,
 	})
 }
 
-func writeJSONSuccess(w http.ResponseWriter, message string, data interface{}) {
+func writeJSONSuccess(r *http.Request, w http.ResponseWriter, message string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	corrID := ""
-	if id, ok := middleware.RequestIDFrom(w.(interface{ Header() http.Header }).(http.ResponseWriter).(interface{ }); ok {
-		_ = id
-	}
+	corrID, _ := middleware.RequestIDFromContext(r.Context())
 	_ = json.NewEncoder(w).Encode(SuccessResponse{
-		Message: message,
-		Data:    data,
-		// CorrelationID intentionally blank until better context passing
+		Message:       message,
+		Data:          data,
+		CorrelationID: corrID,
 	})
 }

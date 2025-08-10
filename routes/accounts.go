@@ -20,31 +20,31 @@ func NewAccountHandler(db *gorm.DB) *AccountHandler {
 }
 
 type createAccountRequest struct {
-	Name              string `json:"name"`
-	Type              string `json:"type"`
-	Currency          string `json:"currency"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	Currency            string `json:"currency"`
 	OpeningBalanceCents int64  `json:"opening_balance_cents"`
 }
 
 func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request, householdIDStr string) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	hID, valid := parseUintString(householdIDStr)
 	if !valid {
-		writeJSONError(w, "invalid household id", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid household id", http.StatusBadRequest)
 		return
 	}
 	member, _ := userIsHouseholdMember(h.db, user.ID, hID)
 	if !member {
-		writeJSONError(w, "forbidden", http.StatusForbidden)
+		writeJSONError(r, w, "forbidden", http.StatusForbidden)
 		return
 	}
 	var req createAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || sanitizeString(req.Name) == "" {
-		writeJSONError(w, "invalid payload", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid payload", http.StatusBadRequest)
 		return
 	}
 	if req.Type == "" {
@@ -61,31 +61,31 @@ func (h *AccountHandler) Create(w http.ResponseWriter, r *http.Request, househol
 		OpeningBalanceCents: req.OpeningBalanceCents,
 	}
 	if err := h.db.Create(acc).Error; err != nil {
-		writeJSONError(w, "create failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "create failed", http.StatusInternalServerError)
 		return
 	}
-	writeJSONSuccess(w, "created", acc)
+	writeJSONSuccess(r, w, "created", acc)
 }
 
 func (h *AccountHandler) List(w http.ResponseWriter, r *http.Request, householdIDStr string) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	hID, valid := parseUintString(householdIDStr)
 	if !valid {
-		writeJSONError(w, "invalid household id", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid household id", http.StatusBadRequest)
 		return
 	}
 	member, _ := userIsHouseholdMember(h.db, user.ID, hID)
 	if !member {
-		writeJSONError(w, "forbidden", http.StatusForbidden)
+		writeJSONError(r, w, "forbidden", http.StatusForbidden)
 		return
 	}
 	var accounts []models.Account
 	h.db.Where("household_id = ?", hID).Find(&accounts)
-	writeJSONSuccess(w, "ok", accounts)
+	writeJSONSuccess(r, w, "ok", accounts)
 }
 
 func (h *AccountHandler) ensureOwnership(userID, accountID uint) (*models.Account, bool) {
@@ -100,7 +100,6 @@ func (h *AccountHandler) ensureOwnership(userID, accountID uint) (*models.Accoun
 	return &acc, true
 }
 
-// For potential future update endpoints
 func (h *AccountHandler) archiveAccount(acc *models.Account) {
 	now := time.Now()
 	acc.ArchivedAt = &now

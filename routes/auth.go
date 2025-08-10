@@ -55,22 +55,22 @@ type authResponse struct {
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "invalid json", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid json", http.StatusBadRequest)
 		return
 	}
 	req.Email = sanitizeString(req.Email)
 	if req.Email == "" || req.Password == "" {
-		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		writeJSONError(r, w, "email and password required", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidatePasswordStrength(req.Password, h.cfg.AllowInsecurePassword); err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(r, w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -84,14 +84,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	argonSalt, err := security.RandomBytes(int(argonParams.SaltLength))
 	if err != nil {
-		writeJSONError(w, "internal error", http.StatusInternalServerError)
+		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	passwordKey := security.DeriveKey(req.Password, argonSalt, argonParams)
 	kek := passwordKey
 	_, encDEK, err := security.WrapDEK(kek)
 	if err != nil {
-		writeJSONError(w, "internal error", http.StatusInternalServerError)
+		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -109,17 +109,17 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.Create(user).Error; err != nil {
-		writeJSONError(w, "user create failed", http.StatusConflict)
+		writeJSONError(r, w, "user create failed", http.StatusConflict)
 		return
 	}
 
 	at, rt, exp, err := h.issueTokens(user)
 	if err != nil {
-		writeJSONError(w, "token issue failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONSuccess(w, "registered", authResponse{
+	writeJSONSuccess(r, w, "registered", authResponse{
 		AccessToken:  at,
 		RefreshToken: rt,
 		ExpiresAt:    exp,
@@ -130,23 +130,23 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "invalid json", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid json", http.StatusBadRequest)
 		return
 	}
 	req.Email = sanitizeString(req.Email)
 	if req.Email == "" || req.Password == "" {
-		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		writeJSONError(r, w, "email and password required", http.StatusBadRequest)
 		return
 	}
 
 	var user models.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
+		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
@@ -159,17 +159,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	key := security.DeriveKey(req.Password, user.ArgonSalt, argonParams)
 	if !security.ConstantTimeCompare(key, user.PasswordHash) {
-		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
+		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	at, rt, exp, err := h.issueTokens(&user)
 	if err != nil {
-		writeJSONError(w, "token issue failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONSuccess(w, "authenticated", authResponse{
+	writeJSONSuccess(r, w, "authenticated", authResponse{
 		AccessToken:  at,
 		RefreshToken: rt,
 		ExpiresAt:    exp,
@@ -180,40 +180,38 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req refreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
-		writeJSONError(w, "refresh_token required", http.StatusBadRequest)
+		writeJSONError(r, w, "refresh_token required", http.StatusBadRequest)
 		return
 	}
 	token, claims, err := h.parseToken(req.RefreshToken)
 	if err != nil || !token.Valid {
-		writeJSONError(w, "invalid refresh token", http.StatusUnauthorized)
+		writeJSONError(r, w, "invalid refresh token", http.StatusUnauthorized)
 		return
 	}
-	// Retrieve token record
 	var rt models.RefreshToken
 	if err := h.db.Where("id = ? AND user_id = ?", claims.ID, claims.UserID).First(&rt).Error; err != nil {
-		writeJSONError(w, "refresh invalid", http.StatusUnauthorized)
+		writeJSONError(r, w, "refresh invalid", http.StatusUnauthorized)
 		return
 	}
 	if rt.RevokedAt != nil || time.Now().Unix() > rt.ExpiresAt {
-		writeJSONError(w, "refresh expired or revoked", http.StatusUnauthorized)
+		writeJSONError(r, w, "refresh expired or revoked", http.StatusUnauthorized)
 		return
 	}
 
 	var user models.User
 	if err := h.db.First(&user, claims.UserID).Error; err != nil {
-		writeJSONError(w, "user not found", http.StatusUnauthorized)
+		writeJSONError(r, w, "user not found", http.StatusUnauthorized)
 		return
 	}
 
-	// Rotate: revoke old, issue new
 	at, newRT, exp, err := h.issueTokens(&user)
 	if err != nil {
-		writeJSONError(w, "token issue failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "token issue failed", http.StatusInternalServerError)
 		return
 	}
 	nowUnix := time.Now().Unix()
@@ -224,7 +222,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("failed revoke refresh", "error", err)
 	}
 
-	writeJSONSuccess(w, "refreshed", authResponse{
+	writeJSONSuccess(r, w, "refreshed", authResponse{
 		AccessToken:  at,
 		RefreshToken: newRT,
 		ExpiresAt:    exp,
@@ -235,27 +233,27 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req logoutRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.RefreshToken == "" {
-		writeJSONError(w, "refresh_token required", http.StatusBadRequest)
+		writeJSONError(r, w, "refresh_token required", http.StatusBadRequest)
 		return
 	}
 	_, claims, err := h.parseToken(req.RefreshToken)
 	if err != nil {
-		writeJSONError(w, "invalid token", http.StatusUnauthorized)
+		writeJSONError(r, w, "invalid token", http.StatusUnauthorized)
 		return
 	}
 	now := time.Now().Unix()
 	h.db.Model(&models.RefreshToken{}).Where("id = ? AND user_id = ?", claims.ID, claims.UserID).
 		Updates(map[string]any{"revoked_at": &now})
-	writeJSONSuccess(w, "logged out", nil)
+	writeJSONSuccess(r, w, "logged out", nil)
 }
 
-func (h *AuthHandler) issueTokens(u *models.User) (accessToken, refreshToken string, expires time.Time, err error) {
+func (h *AuthHandler) issueTokens(u *models/User) (accessToken, refreshToken string, expires time.Time, err error) {
 	now := time.Now()
 	accessExp := now.Add(h.cfg.AccessTokenTTL)
 	refreshExp := now.Add(h.cfg.RefreshTokenTTL)
@@ -291,8 +289,6 @@ func (h *AuthHandler) issueTokens(u *models.User) (accessToken, refreshToken str
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-
-	// persist refresh token metadata
 	rec := &models.RefreshToken{
 		ID:        refreshJTI,
 		UserID:    u.ID,

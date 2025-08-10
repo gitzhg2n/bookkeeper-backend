@@ -25,37 +25,37 @@ type createTransactionRequest struct {
 	Currency    string  `json:"currency"`
 	CategoryID  *uint   `json:"category_id"`
 	Memo        string  `json:"memo"`
-	OccurredAt  *string `json:"occurred_at"` // RFC3339 or date
+	OccurredAt  *string `json:"occurred_at"`
 }
 
 func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, accountIDStr string) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	accID, err := strconv.ParseUint(accountIDStr, 10, 32)
 	if err != nil {
-		writeJSONError(w, "invalid account id", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid account id", http.StatusBadRequest)
 		return
 	}
 	var acc models.Account
 	if err := h.db.First(&acc, uint(accID)).Error; err != nil {
-		writeJSONError(w, "account not found", http.StatusNotFound)
+		writeJSONError(r, w, "account not found", http.StatusNotFound)
 		return
 	}
 	isMember, _ := userIsHouseholdMember(h.db, user.ID, acc.HouseholdID)
 	if !isMember {
-		writeJSONError(w, "forbidden", http.StatusForbidden)
+		writeJSONError(r, w, "forbidden", http.StatusForbidden)
 		return
 	}
 	var req createTransactionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "invalid json", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid json", http.StatusBadRequest)
 		return
 	}
 	if req.AmountCents == 0 {
-		writeJSONError(w, "amount_cents required", http.StatusBadRequest)
+		writeJSONError(r, w, "amount_cents required", http.StatusBadRequest)
 		return
 	}
 	if req.Currency == "" {
@@ -77,31 +77,31 @@ func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, acco
 		OccurredAt:  occ,
 	}
 	if err := h.db.Create(trx).Error; err != nil {
-		writeJSONError(w, "create failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "create failed", http.StatusInternalServerError)
 		return
 	}
-	writeJSONSuccess(w, "created", trx)
+	writeJSONSuccess(r, w, "created", trx)
 }
 
 func (h *TransactionHandler) List(w http.ResponseWriter, r *http.Request, accountIDStr string) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	accID, err := strconv.ParseUint(accountIDStr, 10, 32)
 	if err != nil {
-		writeJSONError(w, "invalid account id", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid account id", http.StatusBadRequest)
 		return
 	}
 	var acc models.Account
 	if err := h.db.First(&acc, uint(accID)).Error; err != nil {
-		writeJSONError(w, "account not found", http.StatusNotFound)
+		writeJSONError(r, w, "account not found", http.StatusNotFound)
 		return
 	}
 	isMember, _ := userIsHouseholdMember(h.db, user.ID, acc.HouseholdID)
 	if !isMember {
-		writeJSONError(w, "forbidden", http.StatusForbidden)
+		writeJSONError(r, w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -122,5 +122,5 @@ func (h *TransactionHandler) List(w http.ResponseWriter, r *http.Request, accoun
 
 	var txs []models.Transaction
 	query.Order("occurred_at desc").Limit(500).Find(&txs)
-	writeJSONSuccess(w, "ok", txs)
+	writeJSONSuccess(r, w, "ok", txs)
 }

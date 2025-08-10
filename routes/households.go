@@ -27,12 +27,12 @@ type createHouseholdRequest struct {
 func (h *HouseholdHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var req createHouseholdRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || sanitizeString(req.Name) == "" {
-		writeJSONError(w, "invalid name", http.StatusBadRequest)
+		writeJSONError(r, w, "invalid name", http.StatusBadRequest)
 		return
 	}
 	house := &models.Household{
@@ -40,7 +40,7 @@ func (h *HouseholdHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: user.ID,
 	}
 	if err := h.db.Create(house).Error; err != nil {
-		writeJSONError(w, "create failed", http.StatusInternalServerError)
+		writeJSONError(r, w, "create failed", http.StatusInternalServerError)
 		return
 	}
 	member := &models.HouseholdMember{
@@ -51,7 +51,7 @@ func (h *HouseholdHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = h.db.Create(member).Error
 
-	writeJSONSuccess(w, "created", map[string]any{
+	writeJSONSuccess(r, w, "created", map[string]any{
 		"id":   house.ID,
 		"name": house.Name,
 	})
@@ -60,7 +60,7 @@ func (h *HouseholdHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *HouseholdHandler) List(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var results []struct {
@@ -73,7 +73,7 @@ func (h *HouseholdHandler) List(w http.ResponseWriter, r *http.Request) {
 		Joins("JOIN household_members hm ON hm.household_id = h.id").
 		Where("hm.user_id = ?", user.ID).
 		Scan(&results)
-	writeJSONSuccess(w, "ok", results)
+	writeJSONSuccess(r, w, "ok", results)
 }
 
 func userIsHouseholdMember(db *gorm.DB, userID uint, householdID uint) (bool, string) {

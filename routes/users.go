@@ -19,10 +19,10 @@ func NewUserHandler(db *gorm.DB) *UserHandler {
 func (h *UserHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFrom(r.Context())
 	if !ok {
-		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(r, w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	writeJSONSuccess(w, "ok", map[string]any{
+	writeJSONSuccess(r, w, "ok", map[string]any{
 		"id":    user.ID,
 		"email": user.Email,
 		"role":  user.Role,
