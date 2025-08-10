@@ -10,7 +10,7 @@ import (
 	"bookkeeper-backend/config"
 	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/middleware"
-	"bookkeeper-backend/security"
+	"bookkeeper-backend/internal/security"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -88,7 +88,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	passwordKey := security.DeriveKey(req.Password, argonSalt, argonParams)
-	kek := passwordKey
+	kek, err := security.DeriveKEK(passwordKey, "bookkeeper:dek:v1")
+	if err != nil {
+		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	_, encDEK, err := security.WrapDEK(kek)
 	if err != nil {
 		writeJSONError(r, w, "internal error", http.StatusInternalServerError)
@@ -253,7 +257,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSONSuccess(r, w, "logged out", nil)
 }
 
-func (h *AuthHandler) issueTokens(u *models/User) (accessToken, refreshToken string, expires time.Time, err error) {
+func (h *AuthHandler) issueTokens(u *models.User) (accessToken, refreshToken string, expires time.Time, err error) {
 	now := time.Now()
 	accessExp := now.Add(h.cfg.AccessTokenTTL)
 	refreshExp := now.Add(h.cfg.RefreshTokenTTL)

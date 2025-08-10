@@ -18,11 +18,14 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		writeJSONSuccess(r, w, "ok", map[string]string{"status": "up"})
 	})
 
+	// Rate limiter for auth endpoints (10 requests per 60 seconds per IP)
+	authRateLimit := middleware.NewRateLimiter().Limit(60000, 10)
+
 	authHandler := NewAuthHandler(cfg, gdb, logger)
-	mux.HandleFunc("/v1/auth/register", authHandler.Register)
-	mux.HandleFunc("/v1/auth/login", authHandler.Login)
-	mux.HandleFunc("/v1/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("/v1/auth/logout", authHandler.Logout)
+	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
+	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
+	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))
+	mux.Handle("/v1/auth/logout", authRateLimit(http.HandlerFunc(authHandler.Logout)))
 
 	userHandler := NewUserHandler(gdb)
 	households := NewHouseholdHandler(gdb)
@@ -76,6 +79,16 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 				}
 				return
 			case "budgets":
+				if len(parts) >= 3 {
+					// /v1/households/{id}/budgets/{budgetID} - DELETE specific budget
+					budgetID := parts[2]
+					if r.Method == http.MethodDelete {
+						budgets.Delete(w, r, householdID, budgetID)
+						return
+					}
+					writeJSONError(r, w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
 				// /v1/households/{id}/budgets (GET list, POST create, PUT upsert)
 				switch r.Method {
 				case http.MethodPost:
