@@ -14,6 +14,7 @@ type User struct {
 	ArgonSalt        []byte    `json:"-"`
 	ArgonKeyLength   uint32    `json:"-"`
 	KDFVersion       int       `json:"-"`
+	Plan             string    `gorm:"size:32;default:'free'" json:"plan"` // free, premium, selfhost
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

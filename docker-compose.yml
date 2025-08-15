@@ -10,6 +10,15 @@ services:
       - db
     volumes:
       - .:/app
+  frontend:
+    build:
+      context: ../frontend/bookkeeper-frontend-1
+    ports:
+      - "8080:80"
+    depends_on:
+      - app
+    environment:
+      - REACT_APP_API_BASE=http://localhost:3000
   db:
     image: postgres:16-alpine
     environment:

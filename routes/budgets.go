@@ -107,6 +107,20 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request, householdID
 			Select("COALESCE(SUM(amount_cents),0)").
 			Where("category_id = ? AND occurred_at >= ? AND occurred_at < ?", b.CategoryID, start, end).
 			Scan(&actual)
+
+		// Notification for budget threshold
+		if actual >= b.PlannedCents && b.PlannedCents > 0 {
+			msg := fmt.Sprintf("Budget reached for category %d: $%.2f spent of $%.2f", b.CategoryID, float64(actual)/100, float64(b.PlannedCents)/100)
+			n := &models.Notification{
+				UserID:  user.ID,
+				Type:    models.NotificationTypeBudget,
+				Message: msg,
+				Read:    false,
+				CreatedAt: time.Now(),
+			}
+			h.notifications.CreateNotification(r.Context(), n)
+		}
+
 		results = append(results, row{
 			ID:           b.ID,
 			CategoryID:   b.CategoryID,

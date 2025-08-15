@@ -143,6 +143,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	var user models.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		// Failed login notification
+		n := &models.Notification{
+			UserID:  0, // Unknown user, can't notify
+			Type:    models.NotificationType("security"),
+			Message: "Failed login attempt for email: " + req.Email,
+			Read:    false,
+			CreatedAt: time.Now(),
+		}
+		// Optionally log or store for admin review
 		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -155,6 +164,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	key := security.DeriveKey(req.Password, user.ArgonSalt, argonParams)
 	if !security.ConstantTimeCompare(key, user.PasswordHash) {
+		// Failed login notification for known user
+		n := &models.Notification{
+			UserID:  user.ID,
+			Type:    models.NotificationType("security"),
+			Message: "Failed login attempt for your account.",
+			Read:    false,
+			CreatedAt: time.Now(),
+		}
+		// Optionally store or send notification
 		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}

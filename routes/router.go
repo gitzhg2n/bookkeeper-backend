@@ -37,6 +37,13 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 
 	protected := middleware.AuthMiddleware(cfg)
 
+	// Notifications
+	notificationStore := db.NotificationStore{DB: gdb.DB()}
+	notificationHandler := &NotificationHandler{Store: &notificationStore}
+	mux.Handle("/v1/notifications", protected(http.HandlerFunc(notificationHandler.ListNotifications)))
+	mux.Handle("/v1/notifications/read", protected(http.HandlerFunc(notificationHandler.MarkNotificationRead)))
+	mux.Handle("/v1/notifications/read-all", protected(http.HandlerFunc(notificationHandler.MarkAllNotificationsRead)))
+
 	mux.Handle("/v1/users/me", protected(http.HandlerFunc(userHandler.Me)))
 
 	mux.Handle("/v1/households", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +140,11 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		}
 		writeJSONError(r, w, "not found", http.StatusNotFound)
 	})))
+
+	userSettingsStore := db.UserSettingsStore{DB: gdb.DB()}
+	userSettingsHandler := &UserSettingsHandler{Store: &userSettingsStore}
+	mux.Handle("/v1/user/settings", protected(http.HandlerFunc(userSettingsHandler.Get)))
+	mux.Handle("/v1/user/settings/update", protected(http.HandlerFunc(userSettingsHandler.Upsert)))
 
 	root := middleware.RequestID()(middleware.Logging(logger)(mux))
 	return root

@@ -11,6 +11,7 @@ type UserContext struct {
 	Email string
 	Role  string
 	// Future: household membership, plan, etc.
+	Plan  string // free, premium, selfhost
 }
 
 func WithUser(ctx context.Context, u *UserContext) context.Context {

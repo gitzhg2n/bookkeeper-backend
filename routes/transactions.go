@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -80,6 +81,58 @@ func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, acco
 		writeJSONError(r, w, "create failed", http.StatusInternalServerError)
 		return
 	}
+
+	// Notification for large transaction
+	threshold := int64(25000) // $250 in cents
+	if user.Plan == "premium" || user.Plan == "selfhost" {
+		settingsStore := db.UserSettingsStore{DB: h.db}
+		if us, err := settingsStore.GetByUserID(user.ID); err == nil && us.LargeTransactionThreshold > 0 {
+			threshold = us.LargeTransactionThreshold
+		}
+	}
+	if req.AmountCents >= threshold {
+		msg := "Large transaction detected: $" + fmt.Sprintf("%.2f", float64(req.AmountCents)/100)
+		n := &models.Notification{
+			UserID:  user.ID,
+			Type:    models.NotificationTypeTransaction,
+			Message: msg,
+			Read:    false,
+			CreatedAt: time.Now(),
+		}
+		h.notifications.CreateNotification(r.Context(), n)
+	}
+
+	// Goal progress notifications (50% and 100%)
+	goalStore := db.GoalStore{DB: h.db}
+	goals, _ := goalStore.ListByUser(user.ID)
+	for _, goal := range goals {
+		if goal.TargetCents == 0 {
+			continue
+		}
+		progress := float64(goal.CurrentCents) / float64(goal.TargetCents)
+		if progress >= 0.5 && progress < 1.0 {
+			msg := "Goal '" + goal.Name + "' is 50% complete!"
+			n := &models.Notification{
+				UserID:  user.ID,
+				Type:    models.NotificationTypeGoal,
+				Message: msg,
+				Read:    false,
+				CreatedAt: time.Now(),
+			}
+			h.notifications.CreateNotification(r.Context(), n)
+		} else if progress >= 1.0 {
+			msg := "Goal '" + goal.Name + "' is complete!"
+			n := &models.Notification{
+				UserID:  user.ID,
+				Type:    models.NotificationTypeGoal,
+				Message: msg,
+				Read:    false,
+				CreatedAt: time.Now(),
+			}
+			h.notifications.CreateNotification(r.Context(), n)
+		}
+	}
+
 	writeJSONSuccess(r, w, "created", trx)
 }
 
