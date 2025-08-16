@@ -34,8 +34,37 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	transactions := NewTransactionHandler(gdb)
 	categories := NewCategoryHandler(gdb)
 	budgets := NewBudgetHandler(gdb)
+	// calculators are implemented as package-level handlers
 
 	protected := middleware.AuthMiddleware(cfg)
+
+	// Calculators
+	mux.Handle("/v1/calculators/mortgage", protected(http.HandlerFunc(MortgageCalculator)))
+	mux.Handle("/v1/calculators/debt-payoff", protected(http.HandlerFunc(DebtPayoffCalculator)))
+	mux.Handle("/v1/calculators/investment-growth", protected(http.HandlerFunc(InvestmentGrowthCalculator)))
+	mux.Handle("/v1/calculators/rent-vs-buy", protected(http.HandlerFunc(RentVsBuyCalculator)))
+	mux.Handle("/v1/calculators/tax-estimator", protected(http.HandlerFunc(TaxEstimatorCalculator)))
+
+	mux.Handle("/v1/calculators/amortization", protected(http.HandlerFunc(AmortizationScheduleHandler)))
+	mux.Handle("/v1/calculators/refinance-breakeven", protected(http.HandlerFunc(RefinanceBreakevenHandler)))
+	mux.Handle("/v1/calculators/apr-to-apy", protected(http.HandlerFunc(APRToAPYHandler)))
+	mux.Handle("/v1/calculators/apy-to-apr", protected(http.HandlerFunc(APYToAPRHandler)))
+	mux.Handle("/v1/calculators/retirement-projection", protected(http.HandlerFunc(RetirementProjectionHandler)))
+	mux.Handle("/v1/calculators/savings-goal", protected(http.HandlerFunc(SavingsGoalHandler)))
+	mux.Handle("/v1/calculators/credit-payoff", protected(http.HandlerFunc(CreditPayoffHandler)))
+	mux.Handle("/v1/calculators/take-home", protected(http.HandlerFunc(TakeHomeHandler)))
+	mux.Handle("/v1/calculators/inflation-adjust", protected(http.HandlerFunc(InflationAdjustHandler)))
+	mux.Handle("/v1/calculators/net-worth", protected(http.HandlerFunc(NetWorthHandler)))
+
+	mux.Handle("/v1/calculators/loan-comparison", protected(http.HandlerFunc(LoanComparisonHandler)))
+	mux.Handle("/v1/calculators/affordability", protected(http.HandlerFunc(AffordabilityHandler)))
+	mux.Handle("/v1/calculators/credit-optimization", protected(http.HandlerFunc(CreditOptHandler)))
+	mux.Handle("/v1/calculators/college-savings", protected(http.HandlerFunc(CollegeSavingsHandler)))
+	mux.Handle("/v1/calculators/fee-drag", protected(http.HandlerFunc(FeeDragHandler)))
+	mux.Handle("/v1/calculators/safe-withdrawal", protected(http.HandlerFunc(SafeWithdrawalHandler)))
+	mux.Handle("/v1/calculators/cd-ladder", protected(http.HandlerFunc(CDLadderHandler)))
+	mux.Handle("/v1/calculators/payroll", protected(http.HandlerFunc(PayrollHandler)))
+	mux.Handle("/v1/calculators/convert-currency", protected(http.HandlerFunc(ConvertCurrencyHandler)))
 
 	// Notifications
 	notificationStore := db.NotificationStore{DB: gdb.DB()}

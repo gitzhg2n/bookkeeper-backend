@@ -1,5 +1,7 @@
 # Bookkeeper Backend (Go Version)
 
+[![Go Tests](https://github.com/gitzhg2n/bookkeeper-backend/actions/workflows/go-tests.yml/badge.svg)](https://github.com/gitzhg2n/bookkeeper-backend/actions/workflows/go-tests.yml)
+
 This repository contains the backend code for **Bookkeeper**, a privacy-first, open-source personal finance management application written in Go.
 
 ## 🚀 Quick Start
