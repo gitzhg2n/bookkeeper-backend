@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Port                 string
+	DeploymentMode       string
 	DatabaseURL          string
 	JWTSecret            []byte
 	LogLevel             string
@@ -33,6 +34,7 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
+	DeploymentMode:       getEnv("DEPLOYMENT_MODE", "cloud"),
 		Port:                 getEnv("PORT", "3000"),
 		DatabaseURL:          getEnv("DATABASE_URL", "bookkeeper.db"),
 		LogLevel:             getEnv("LOG_LEVEL", "info"),

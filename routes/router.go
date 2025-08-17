@@ -38,6 +38,11 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 
 	protected := middleware.AuthMiddleware(cfg)
 
+	// admin entitlement management (admin-only endpoints)
+	adminEnt := NewAdminEntitlementHandler(gdb)
+	mux.Handle("/v1/admin/entitlements", protected(http.HandlerFunc(adminEnt.List)))
+	mux.Handle("/v1/admin/entitlements/upsert", protected(http.HandlerFunc(adminEnt.Upsert)))
+
 	// Calculators
 	mux.Handle("/v1/calculators/mortgage", protected(http.HandlerFunc(MortgageCalculator)))
 	mux.Handle("/v1/calculators/debt-payoff", protected(http.HandlerFunc(DebtPayoffCalculator)))
