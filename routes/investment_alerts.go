@@ -21,7 +21,7 @@ func (h *InvestmentAlertHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	alerts, err := h.Store.ListByUser(user.ID)
+	alerts, err := h.Store.ListByUser(r.Context(), user.ID)
 	if err != nil {
 		http.Error(w, "failed to fetch alerts", http.StatusInternalServerError)
 		return
@@ -42,7 +42,7 @@ func (h *InvestmentAlertHandler) Create(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	req.UserID = user.ID
-	if err := h.Store.Create(&req); err != nil {
+	if err := h.Store.Create(r.Context(), &req); err != nil {
 		http.Error(w, "failed to create alert", http.StatusInternalServerError)
 		return
 	}
@@ -69,7 +69,7 @@ func (h *InvestmentAlertHandler) Update(w http.ResponseWriter, r *http.Request) 
 	}
 	req.ID = uint(id)
 	req.UserID = user.ID
-	if err := h.Store.Update(&req); err != nil {
+	if err := h.Store.Update(r.Context(), &req); err != nil {
 		http.Error(w, "failed to update alert", http.StatusInternalServerError)
 		return
 	}
@@ -89,7 +89,7 @@ func (h *InvestmentAlertHandler) Delete(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	if err := h.Store.Delete(user.ID, uint(id)); err != nil {
+	if err := h.Store.Delete(r.Context(), user.ID, uint(id)); err != nil {
 		http.Error(w, "failed to delete alert", http.StatusInternalServerError)
 		return
 	}

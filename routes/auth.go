@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bookkeeper-backend/config"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/internal/security"
 	"bookkeeper-backend/middleware"
@@ -21,10 +22,11 @@ type AuthHandler struct {
 	cfg    *config.Config
 	db     *gorm.DB
 	logger *slog.Logger
+	Notifications *db.NotificationStore
 }
 
-func NewAuthHandler(cfg *config.Config, db *gorm.DB, logger *slog.Logger) *AuthHandler {
-	return &AuthHandler{cfg: cfg, db: db, logger: logger}
+func NewAuthHandler(cfg *config.Config, db *gorm.DB, logger *slog.Logger, notifications *db.NotificationStore) *AuthHandler {
+	return &AuthHandler{cfg: cfg, db: db, logger: logger, Notifications: notifications}
 }
 
 type registerRequest struct {
@@ -152,6 +154,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now(),
 		}
 		// Optionally log or store for admin review
+		if h.Notifications != nil {
+			h.Notifications.CreateNotification(r.Context(), n)
+		}
 		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -173,6 +178,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now(),
 		}
 		// Optionally store or send notification
+		if h.Notifications != nil {
+			h.Notifications.CreateNotification(r.Context(), n)
+		}
 		writeJSONError(r, w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}

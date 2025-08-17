@@ -23,7 +23,7 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	rateLimiter := middleware.NewRateLimiter()
 	authRateLimit := rateLimiter.Limit(60000, 10)
 
-	authHandler := NewAuthHandler(cfg, gdb, logger)
+	authHandler := NewAuthHandler(cfg, gdb, logger, &notificationStore)
 	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
 	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))

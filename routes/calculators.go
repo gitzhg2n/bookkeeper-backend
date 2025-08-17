@@ -95,7 +95,6 @@ func RentVsBuyCalculator(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(r, w, "invalid comparison years", http.StatusBadRequest)
 		return
 	}
-	years := req.ComparisonYears
 	netOwningCost, totalRenting, netBenefit, rec, err := calculators.RentVsBuyComparison(req.HomePrice, req.DownPayment, req.InterestRate, req.LoanTermYears, req.PropertyTaxRate, req.HomeInsurance, req.MaintenanceCosts, req.AppreciationRate, req.ClosingCosts, req.SellingCostsRate, req.MonthlyRent, req.RentersInsurance, req.AnnualRentIncrease, req.ComparisonYears, req.InvestmentReturnRate)
 	if err != nil {
 		writeJSONError(r, w, err.Error(), http.StatusBadRequest)
