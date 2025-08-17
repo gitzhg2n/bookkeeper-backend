@@ -66,25 +66,3 @@ type Category struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
-
-type Budget struct {
-	ID           uint      `gorm:"primaryKey"`
-	HouseholdID  uint      `gorm:"index:uniq_budget,unique"`
-	Month        string    `gorm:"size:7;index:uniq_budget,unique"`
-	CategoryID   uint      `gorm:"index:uniq_budget,unique"`
-	PlannedCents int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-}
-
-type Transaction struct {
-	ID          uint      `gorm:"primaryKey"`
-	AccountID   uint      `gorm:"index"`
-	UserID      *uint     `gorm:"index"`
-	AmountCents int64
-	Currency    string    `gorm:"size:8"`
-	CategoryID  *uint     `gorm:"index"`
-	Memo        string    `gorm:"size:1024"`
-	OccurredAt  time.Time `gorm:"index"`
-	CreatedAt   time.Time
-}

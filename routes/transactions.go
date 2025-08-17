@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bookkeeper-backend/internal/models"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/middleware"
 
 	"gorm.io/gorm"
@@ -15,10 +16,11 @@ import (
 
 type TransactionHandler struct {
 	db *gorm.DB
+	Notifications *db.NotificationStore
 }
 
-func NewTransactionHandler(db *gorm.DB) *TransactionHandler {
-	return &TransactionHandler{db: db}
+func NewTransactionHandler(db *gorm.DB, notifications *db.NotificationStore) *TransactionHandler {
+	return &TransactionHandler{db: db, Notifications: notifications}
 }
 
 type createTransactionRequest struct {
@@ -93,13 +95,15 @@ func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, acco
 	if req.AmountCents >= threshold {
 		msg := "Large transaction detected: $" + fmt.Sprintf("%.2f", float64(req.AmountCents)/100)
 		n := &models.Notification{
-			UserID:  user.ID,
+			UserID:  int64(user.ID),
 			Type:    models.NotificationTypeTransaction,
 			Message: msg,
 			Read:    false,
 			CreatedAt: time.Now(),
 		}
-		h.notifications.CreateNotification(r.Context(), n)
+		if h.Notifications != nil {
+			h.Notifications.CreateNotification(r.Context(), n)
+		}
 	}
 
 	// Goal progress notifications (50% and 100%)
@@ -113,23 +117,27 @@ func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request, acco
 		if progress >= 0.5 && progress < 1.0 {
 			msg := "Goal '" + goal.Name + "' is 50% complete!"
 			n := &models.Notification{
-				UserID:  user.ID,
+				UserID:  int64(user.ID),
 				Type:    models.NotificationTypeGoal,
 				Message: msg,
 				Read:    false,
 				CreatedAt: time.Now(),
 			}
-			h.notifications.CreateNotification(r.Context(), n)
+			if h.Notifications != nil {
+				h.Notifications.CreateNotification(r.Context(), n)
+			}
 		} else if progress >= 1.0 {
 			msg := "Goal '" + goal.Name + "' is complete!"
 			n := &models.Notification{
-				UserID:  user.ID,
+				UserID:  int64(user.ID),
 				Type:    models.NotificationTypeGoal,
 				Message: msg,
 				Read:    false,
 				CreatedAt: time.Now(),
 			}
-			h.notifications.CreateNotification(r.Context(), n)
+			if h.Notifications != nil {
+				h.Notifications.CreateNotification(r.Context(), n)
+			}
 		}
 	}
 

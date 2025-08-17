@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bookkeeper-backend/config"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/middleware"
 
 	"gorm.io/gorm"
@@ -22,7 +23,15 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	rateLimiter := middleware.NewRateLimiter()
 	authRateLimit := rateLimiter.Limit(60000, 10)
 
-	authHandler := NewAuthHandler(cfg, gdb, logger)
+	// Initialize sql.DB and stores early so they can be injected into handlers
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		logger.Error("failed to get sql.DB from gorm", "error", err)
+		panic(err)
+	}
+	notificationStore := db.NotificationStore{DB: sqlDB}
+
+	authHandler := NewAuthHandler(cfg, gdb, logger, &notificationStore)
 	mux.Handle("/v1/auth/register", authRateLimit(http.HandlerFunc(authHandler.Register)))
 	mux.Handle("/v1/auth/login", authRateLimit(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("/v1/auth/refresh", authRateLimit(http.HandlerFunc(authHandler.Refresh)))
@@ -31,9 +40,9 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	userHandler := NewUserHandler(gdb)
 	households := NewHouseholdHandler(gdb)
 	accounts := NewAccountHandler(gdb)
-	transactions := NewTransactionHandler(gdb)
+	transactions := NewTransactionHandler(gdb, &notificationStore)
 	categories := NewCategoryHandler(gdb)
-	budgets := NewBudgetHandler(gdb)
+	budgets := NewBudgetHandler(gdb, &notificationStore)
 	// calculators are implemented as package-level handlers
 
 	protected := middleware.AuthMiddleware(cfg)
@@ -72,7 +81,6 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	mux.Handle("/v1/calculators/convert-currency", protected(http.HandlerFunc(ConvertCurrencyHandler)))
 
 	// Notifications
-	notificationStore := db.NotificationStore{DB: gdb.DB()}
 	notificationHandler := &NotificationHandler{Store: &notificationStore}
 	mux.Handle("/v1/notifications", protected(http.HandlerFunc(notificationHandler.ListNotifications)))
 	mux.Handle("/v1/notifications/read", protected(http.HandlerFunc(notificationHandler.MarkNotificationRead)))
@@ -175,7 +183,7 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		writeJSONError(r, w, "not found", http.StatusNotFound)
 	})))
 
-	userSettingsStore := db.UserSettingsStore{DB: gdb.DB()}
+	userSettingsStore := db.UserSettingsStore{DB: gdb}
 	userSettingsHandler := &UserSettingsHandler{Store: &userSettingsStore}
 	mux.Handle("/v1/user/settings", protected(http.HandlerFunc(userSettingsHandler.Get)))
 	mux.Handle("/v1/user/settings/update", protected(http.HandlerFunc(userSettingsHandler.Upsert)))

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bookkeeper-backend/internal/models"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/middleware"
 
 	"gorm.io/gorm"
@@ -14,10 +15,11 @@ import (
 
 type BudgetHandler struct {
 	db *gorm.DB
+	Notifications *db.NotificationStore
 }
 
-func NewBudgetHandler(db *gorm.DB) *BudgetHandler {
-	return &BudgetHandler{db: db}
+func NewBudgetHandler(db *gorm.DB, notifications *db.NotificationStore) *BudgetHandler {
+	return &BudgetHandler{db: db, Notifications: notifications}
 }
 
 type createBudgetRequest struct {
@@ -112,13 +114,15 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request, householdID
 		if actual >= b.PlannedCents && b.PlannedCents > 0 {
 			msg := fmt.Sprintf("Budget reached for category %d: $%.2f spent of $%.2f", b.CategoryID, float64(actual)/100, float64(b.PlannedCents)/100)
 			n := &models.Notification{
-				UserID:  user.ID,
+				UserID:  int64(user.ID),
 				Type:    models.NotificationTypeBudget,
 				Message: msg,
 				Read:    false,
 				CreatedAt: time.Now(),
 			}
-			h.notifications.CreateNotification(r.Context(), n)
+			if h.Notifications != nil {
+				h.Notifications.CreateNotification(r.Context(), n)
+			}
 		}
 
 		results = append(results, row{
