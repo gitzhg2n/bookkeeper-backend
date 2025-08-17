@@ -33,7 +33,8 @@ type InvestmentAlert struct {
 	Compound     *CompoundAlertCondition `gorm:"-" json:"compound,omitempty"` // not stored in DB directly
 	TimeWindow   *TimeWindow             `gorm:"-" json:"time_window,omitempty"`
 	CooldownMinutes int                  `gorm:"-" json:"cooldown_minutes,omitempty"`
-	CustomRule   string                  `gorm:"-" json:"custom_rule,omitempty"`
+	// Rule is the stored rule expression for the alert (persisted in DB)
+	Rule          string                  `gorm:"size:1024" json:"rule,omitempty"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
