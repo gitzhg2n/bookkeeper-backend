@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bookkeeper-backend/internal/models"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/middleware"
 
 	"gorm.io/gorm"

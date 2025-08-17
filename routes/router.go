@@ -42,12 +42,6 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	accounts := NewAccountHandler(gdb)
 	transactions := NewTransactionHandler(gdb, &notificationStore)
 	categories := NewCategoryHandler(gdb)
-	sqlDB, err := gdb.DB()
-	if err != nil {
-		logger.Error("failed to get sql.DB from gorm", "error", err)
-		panic(err)
-	}
-	notificationStore := db.NotificationStore{DB: sqlDB}
 	budgets := NewBudgetHandler(gdb, &notificationStore)
 	// calculators are implemented as package-level handlers
 
@@ -189,7 +183,7 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 		writeJSONError(r, w, "not found", http.StatusNotFound)
 	})))
 
-	userSettingsStore := db.UserSettingsStore{DB: sqlDB}
+	userSettingsStore := db.UserSettingsStore{DB: gdb}
 	userSettingsHandler := &UserSettingsHandler{Store: &userSettingsStore}
 	mux.Handle("/v1/user/settings", protected(http.HandlerFunc(userSettingsHandler.Get)))
 	mux.Handle("/v1/user/settings/update", protected(http.HandlerFunc(userSettingsHandler.Upsert)))
