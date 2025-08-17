@@ -166,7 +166,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if !security.ConstantTimeCompare(key, user.PasswordHash) {
 		// Failed login notification for known user
 		n := &models.Notification{
-			UserID:  user.ID,
+			UserID:  int64(user.ID),
 			Type:    models.NotificationType("security"),
 			Message: "Failed login attempt for your account.",
 			Read:    false,

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bookkeeper-backend/config"
+	"bookkeeper-backend/internal/db"
 	"bookkeeper-backend/middleware"
 
 	"gorm.io/gorm"
@@ -33,7 +34,8 @@ func BuildRouter(cfg *config.Config, gdb *gorm.DB, logger *slog.Logger) http.Han
 	accounts := NewAccountHandler(gdb)
 	transactions := NewTransactionHandler(gdb)
 	categories := NewCategoryHandler(gdb)
-	budgets := NewBudgetHandler(gdb)
+	notificationStore := db.NotificationStore{DB: gdb.DB()}
+	budgets := NewBudgetHandler(gdb, &notificationStore)
 	// calculators are implemented as package-level handlers
 
 	protected := middleware.AuthMiddleware(cfg)
