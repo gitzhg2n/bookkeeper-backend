@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"bookkeeper-backend/internal/db"
-	"bookkeeper-backend/internal/models"
 	"bookkeeper-backend/middleware"
 )
 
