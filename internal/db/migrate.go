@@ -1,70 +1,144 @@
 package db
 
 import (
-	"embed"
+	"database/sql"
 	"fmt"
-	"io/fs"
+	"log/slog"
 	"path/filepath"
-	"sort"
-	"strings"
 
-	"gorm.io/gorm"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/sqlite3"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
+// RunMigrations applies all pending database migrations using golang-migrate
+func RunMigrations(sqlDB *sql.DB, logger *slog.Logger) error {
+	driver, err := sqlite3.WithInstance(sqlDB, &sqlite3.Config{})
+	if err != nil {
+		return fmt.Errorf("could not create migration driver: %w", err)
+	}
 
-type Migration struct {
-	Name string
-	SQL  string
+	// Get the absolute path to migrations directory
+	migrationsPath, err := filepath.Abs("migrations")
+	if err != nil {
+		return fmt.Errorf("could not get migrations path: %w", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsPath),
+		"sqlite3",
+		driver,
+	)
+	if err != nil {
+		return fmt.Errorf("could not create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	// Run migrations
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("could not run migrations: %w", err)
+	}
+
+	version, dirty, err := m.Version()
+	if err != nil && err != migrate.ErrNilVersion {
+		logger.Warn("could not get migration version", "error", err)
+	} else if err != migrate.ErrNilVersion {
+		logger.Info("database migrations completed", "version", version, "dirty", dirty)
+	} else {
+		logger.Info("no migrations to apply")
+	}
+
+	return nil
 }
 
-// RunMigrations reads embedded SQL files and executes them in lexical order.
-func RunMigrations(gdb *gorm.DB) error {
-	files, err := fs.ReadDir(migrationsFS, "migrations")
+// MigrateDown rolls back the database by specified steps
+func MigrateDown(sqlDB *sql.DB, steps int, logger *slog.Logger) error {
+	driver, err := sqlite3.WithInstance(sqlDB, &sqlite3.Config{})
 	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
-	}
-	var migs []Migration
-	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".sql") {
-			continue
-		}
-		b, err := migrationsFS.ReadFile(filepath.Join("migrations", f.Name()))
-		if err != nil {
-			return fmt.Errorf("read file %s: %w", f.Name(), err)
-		}
-		migs = append(migs, Migration{Name: f.Name(), SQL: string(b)})
-	}
-	sort.Slice(migs, func(i, j int) bool { return migs[i].Name < migs[j].Name })
-
-	// simple migrations table
-	if err := gdb.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).Error; err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
+		return fmt.Errorf("could not create migration driver: %w", err)
 	}
 
-	applied := map[string]struct{}{}
-	rows, err := gdb.Raw(`SELECT filename FROM schema_migrations`).Rows()
+	migrationsPath, err := filepath.Abs("migrations")
 	if err != nil {
-		return fmt.Errorf("query schema_migrations: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		_ = rows.Scan(&name)
-		applied[name] = struct{}{}
+		return fmt.Errorf("could not get migrations path: %w", err)
 	}
 
-	for _, m := range migs {
-		if _, ok := applied[m.Name]; ok {
-			continue
-		}
-		if err := gdb.Exec(m.SQL).Error; err != nil {
-			return fmt.Errorf("apply migration %s: %w", m.Name, err)
-		}
-		if err := gdb.Exec(`INSERT INTO schema_migrations (filename) VALUES (?)`, m.Name).Error; err != nil {
-			return fmt.Errorf("record migration %s: %w", m.Name, err)
-		}
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsPath),
+		"sqlite3",
+		driver,
+	)
+	if err != nil {
+		return fmt.Errorf("could not create migrate instance: %w", err)
 	}
+	defer m.Close()
+
+	if err := m.Steps(-steps); err != nil {
+		return fmt.Errorf("could not run down migrations: %w", err)
+	}
+
+	version, dirty, err := m.Version()
+	if err != nil && err != migrate.ErrNilVersion {
+		logger.Warn("could not get migration version", "error", err)
+	} else if err != migrate.ErrNilVersion {
+		logger.Info("database rollback completed", "version", version, "dirty", dirty)
+	}
+
+	return nil
+}
+
+// GetMigrationVersion returns the current migration version
+func GetMigrationVersion(sqlDB *sql.DB) (uint, bool, error) {
+	driver, err := sqlite3.WithInstance(sqlDB, &sqlite3.Config{})
+	if err != nil {
+		return 0, false, fmt.Errorf("could not create migration driver: %w", err)
+	}
+
+	migrationsPath, err := filepath.Abs("migrations")
+	if err != nil {
+		return 0, false, fmt.Errorf("could not get migrations path: %w", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsPath),
+		"sqlite3",
+		driver,
+	)
+	if err != nil {
+		return 0, false, fmt.Errorf("could not create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	return m.Version()
+}
+
+// ForceMigrationVersion sets the migration version without running migrations
+// This is useful for fixing dirty migration states
+func ForceMigrationVersion(sqlDB *sql.DB, version uint, logger *slog.Logger) error {
+	driver, err := sqlite3.WithInstance(sqlDB, &sqlite3.Config{})
+	if err != nil {
+		return fmt.Errorf("could not create migration driver: %w", err)
+	}
+
+	migrationsPath, err := filepath.Abs("migrations")
+	if err != nil {
+		return fmt.Errorf("could not get migrations path: %w", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsPath),
+		"sqlite3",
+		driver,
+	)
+	if err != nil {
+		return fmt.Errorf("could not create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	if err := m.Force(int(version)); err != nil {
+		return fmt.Errorf("could not force migration version: %w", err)
+	}
+
+	logger.Info("forced migration version", "version", version)
 	return nil
 }
