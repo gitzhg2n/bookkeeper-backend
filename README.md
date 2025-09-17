@@ -24,9 +24,14 @@ cp .env.example .env
 go mod tidy
 ```
 
-3. **Run the application**:
+3. **Run database migrations**:
 ```bash
-go run main.go
+go run cmd/migrate/main.go -up
+```
+
+4. **Run the application**:
+```bash
+go run cmd/server/main.go
 ```
 
 The server will start on port 3000 (or the port specified in your `.env` file).
@@ -42,6 +47,60 @@ docker build -t bookkeeper-backend .
 ```bash
 docker-compose up
 ```
+
+## 🗃️ Database Migrations
+
+Bookkeeper uses [golang-migrate](https://github.com/golang-migrate/migrate) for database schema management.
+
+### Migration Commands
+
+```bash
+# Run all pending migrations
+go run cmd/migrate/main.go -up
+
+# Rollback N migrations
+go run cmd/migrate/main.go -down 1
+
+# Check migration status
+go run cmd/migrate/main.go -status
+
+# Force set migration version (use with caution)
+go run cmd/migrate/main.go -force 2
+```
+
+### Creating New Migrations
+
+1. **Create migration files** in the `migrations/` directory:
+   - `NNNNNN_description.up.sql` - Forward migration
+   - `NNNNNN_description.down.sql` - Rollback migration
+
+2. **Example migration files**:
+   ```sql
+   -- migrations/000004_add_user_preferences.up.sql
+   ALTER TABLE users ADD COLUMN preferences TEXT;
+   
+   -- migrations/000004_add_user_preferences.down.sql
+   ALTER TABLE users DROP COLUMN preferences;
+   ```
+
+3. **Migration numbers** should increment sequentially (000001, 000002, etc.)
+
+### Migration Best Practices
+
+- **Always create both up and down migrations**
+- **Test migrations in development first**
+- **Backup production database before running migrations**
+- **Use transactions where possible**
+- **Avoid destructive changes without data migration scripts**
+
+### Database Schema
+
+The current schema includes:
+- **Users & Authentication**: User accounts, refresh tokens, encryption keys
+- **Households**: Multi-user account management
+- **Financial Data**: Accounts, transactions, categories, budgets
+- **Goals & Planning**: Financial goals, budget tracking
+- **Notifications**: User notifications and investment alerts
 
 ## 📋 API Endpoints
 
@@ -66,7 +125,6 @@ docker-compose up
 - `/households` - Household management
 - `/users` - User management
 - `/incomeSources` - Income source tracking
-
 
 ## 📚 API Details
 
@@ -171,10 +229,12 @@ POST /transactions/{account_id}
 - Set strong secrets in `.env`
 - Use HTTPS in production
 - Set up email/push providers for notifications
+- **Always run migrations before deploying new versions**
 
 ### Contributing
 - See `CONTRIBUTING.md` for guidelines
 - Run tests before submitting PRs
+- Create migrations for any schema changes
 
 ---
 For full API details, see the code in `/routes` and `/internal/models`. For advanced alert logic, see `/internal/jobs/investment_alerts.go`.
